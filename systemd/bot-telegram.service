@@ -1,0 +1,16 @@
+[Unit]
+Description=Bot Telegram (recherche web + Gemini)
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+User=ldws123
+WorkingDirectory=/home/ldws123/bots/telegram-search
+EnvironmentFile=/home/ldws123/bots/.env
+ExecStart=/home/ldws123/bots/venv/bin/python bot.py
+Restart=always
+RestartSec=5
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target
