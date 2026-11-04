@@ -29,6 +29,9 @@ import requests
 
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 GEMINI_KEY = os.environ["GEMINI_API_KEY"]
+# Groq (gratuit, tres rapide : reponses en moins d'1 s). Optionnel : si GROQ_API_KEY est dans .env, il passe en premier.
+GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODELS = os.environ.get("GROQ_MODELS", "llama-3.3-70b-versatile,openai/gpt-oss-20b,llama-3.1-8b-instant").split(",")
 # Modeles essayes dans l'ordre (gratuits, chacun avec son propre quota ; Gemma en dernier recours).
 MODELS = os.environ.get(
     "GEMINI_MODELS",
@@ -310,7 +313,8 @@ RE_PLAY = re.compile(r"(?:jessica )?(?:peux tu |tu peux )?(?:mets|met|joue|lance
 
 def quick_music(text):
     """Raccourci instantane (sans IA) pour les ordres de musique simples. Renvoie la reponse ou None."""
-    t = norm(text)
+    t = re.sub(r"\b(stp|svp|s il te plait|s il vous plait|merci|please|jessica)\b", "", norm(text))
+    t = re.sub(r"\s+", " ", t).strip()
     if len(t.split()) > 12:
         return None
     vol = quick_volume(t)
@@ -465,14 +469,85 @@ def run_tool(chat_id, name, args, links):
     return {"erreur": "outil inconnu"}
 
 
+def build_system():
+    memory = list(db.hvals("memory"))[-60:]
+    return SYSTEM + (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "")
+
+
+GROQ_TOOLS = [{"type": "function", "function": {"parameters": {"type": "object", "properties": {}}, **d}}
+              for d in TOOLS[0]["functionDeclarations"]]
+
+
+def agent_groq(chat_id, question):
+    """Meme agent que ci-dessus, mais sur Groq (tres rapide). Renvoie (texte, liens) ; texte = None si Groq est indisponible."""
+    history = []
+    for x in db.lrange(f"hist:{chat_id}", 0, -1):
+        m = json.loads(x)
+        history.append({"role": "assistant" if m["role"] == "model" else "user", "content": m["parts"][0].get("text", "")})
+    messages = [{"role": "system", "content": build_system()}] + history + [{"role": "user", "content": question}]
+    links = []
+    for _ in range(10):
+        resp = None
+        for model in GROQ_MODELS:
+            if db.get(f"cool:{model}"):
+                continue
+            t0 = time.time()
+            try:
+                r = requests.post("https://api.groq.com/openai/v1/chat/completions", timeout=20,
+                                  headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                                  json={"model": model, "messages": messages, "tools": GROQ_TOOLS,
+                                        "temperature": 0.4, "max_tokens": 700})
+            except requests.RequestException as e:
+                log.warning("groq %s injoignable : %s", model, scrub(e))
+                db.setex(f"cool:{model}", 60, 1)
+                continue
+            log.info("groq %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
+            if r.status_code == 200:
+                resp = r
+                break
+            if r.status_code == 429:
+                db.setex(f"cool:{model}", 3600 if "per day" in r.text.lower() else 20, 1)
+            elif r.status_code != 400:                     # 400 = le modele a rate son appel d'outil : on tente le suivant
+                db.setex(f"cool:{model}", 120, 1)
+        if resp is None:
+            return None, links
+        msg = resp.json()["choices"][0]["message"]
+        calls = msg.get("tool_calls")
+        if not calls:
+            return (msg.get("content") or "").strip(), links
+        messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
+        for c in calls:
+            try:
+                args = json.loads(c["function"].get("arguments") or "{}")
+            except ValueError:
+                args = {}
+            out = run_tool(chat_id, c["function"]["name"], args, links)
+            messages.append({"role": "tool", "tool_call_id": c["id"], "content": json.dumps(out, ensure_ascii=False)[:4000]})
+    return "", links
+
+
+def transcribe(audio):
+    """Message vocal -> texte avec Whisper sur Groq (environ 1 s). None si impossible."""
+    try:
+        r = requests.post("https://api.groq.com/openai/v1/audio/transcriptions", timeout=30,
+                          headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                          data={"model": "whisper-large-v3-turbo", "language": "fr"},
+                          files={"file": ("voice.ogg", audio, "audio/ogg")})
+        if r.status_code == 200:
+            return r.json().get("text", "").strip() or None
+        log.warning("whisper code %s", r.status_code)
+    except requests.RequestException as e:
+        log.warning("whisper injoignable : %s", scrub(e))
+    return None
+
+
 def agent(chat_id, user_parts):
     """Boucle d'agent : Gemini repond, ou demande des outils (musique, recherche web, commandes...) puis conclut.
     Renvoie (texte, liens) ; texte = None si Gemini est indisponible (message deja pret dans liens[0])."""
     history = [json.loads(x) for x in db.lrange(f"hist:{chat_id}", 0, -1)]
     contents = history + [{"role": "user", "parts": user_parts}]
     links = []
-    memory = list(db.hvals("memory"))[-60:]
-    system = SYSTEM + (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "")
+    system = build_system()
     for _ in range(10):
         resp = call_gemini({"systemInstruction": {"parts": [{"text": system}]}, "contents": contents, "tools": TOOLS})
         if resp.status_code == 429:
@@ -500,7 +575,9 @@ def remember(chat_id, question, answer):
 
 
 def ask(chat_id, question):
-    answer, links = agent(chat_id, [{"text": question}])
+    answer, links = agent_groq(chat_id, question) if GROQ_KEY else (None, [])
+    if answer is None:
+        answer, links = agent(chat_id, [{"text": question}])
     if answer is None:
         return links[0]
     if not answer:
@@ -513,6 +590,10 @@ def ask(chat_id, question):
 
 def ask_voice(chat_id, audio, mime):
     """Message vocal : Gemini ecoute, comprend, agit si besoin et repond (un seul passage)."""
+    if GROQ_KEY:
+        text = transcribe(audio)
+        if text:
+            return ask(chat_id, text)
     instruction = ("Voici un message vocal de l'utilisateur : fais ce qu'il demande, puis reponds-lui. Ta reponse finale suit ce "
                    "format strict : une ligne 'Q: ' avec la transcription exacte de ce qu'il a dit, puis une ligne 'R: ' avec ta reponse.")
     answer, links = agent(chat_id, [{"inline_data": {"mime_type": mime, "data": base64.b64encode(audio).decode()}},
