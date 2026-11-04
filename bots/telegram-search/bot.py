@@ -60,6 +60,9 @@ SYSTEM = (
     "TACHES : des que l'utilisateur dit ce qu'il a a faire ('j'ai ca a faire', 'il faut que je ...'), appelle todo_add pour chaque tache, sans demander, "
     "et confirme en une phrase courte. Quand il dit avoir fini quelque chose, appelle todo_done. Le bot lui envoie tout seul un rappel a 13 h et 18 h. "
     "Pour un rappel a une heure precise, utilise set_reminder. "
+    "Emails : si un brouillon est en attente et que l'utilisateur dit seulement oui/envoie, ne rappelle PAS mail_send (le bot s'en charge). "
+    "S'il demande de changer le brouillon (en anglais, plus court...), reprends le texte du brouillon montre dans la conversation et rappelle mail_send avec la version modifiee ; "
+    "n'utilise jamais le texte d'un ancien email sans qu'il le demande. Ne montre jamais tes reflexions. "
     "Emails : mail_send prepare un brouillon que l'utilisateur valide par /oui (tu n'envoies jamais seul). "
     "Quand l'utilisateur t'envoie une photo ou un fichier, il est range dans ~/recus (chemin donne dans le message) : analyse-le, et range-le ou deplace-le avec run_command si on te le demande. "
     "Taches longues : decoupe-les en etapes, enchaine les outils, ou utilise schedule_task pour continuer plus tard et envoyer le resultat. "
@@ -165,6 +168,8 @@ def tg(method, **params):
 
 
 def send(chat_id, text):
+    if text == SILENT:
+        return
     text = text.strip() or "(reponse vide)"
     for i in range(0, len(text), 4000):
         tg("sendMessage", chat_id=chat_id, text=text[i:i + 4000], disable_web_page_preview=True)
@@ -1102,6 +1107,17 @@ GROQ_TOOLS = [{"type": "function", "function": {"parameters": {"type": "object",
               for d in TOOLS[0]["functionDeclarations"]]
 
 
+SILENT = "\u2063(rien a dire)"        # marqueur interne : le brouillon d'email est deja affiche, pas de 2e message
+
+
+def clean_answer(text):
+    """Enleve les restes de reflexion du modele (<think>...</think>, ou texte avant un </think> orphelin)."""
+    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
+    if "</think>" in text:
+        text = text.rsplit("</think>", 1)[1]
+    return text.replace("<think>", "").strip()
+
+
 def agent_groq(chat_id, question, oral=False, taint=False):
     """Meme agent que ci-dessus, mais sur Groq (tres rapide). Renvoie (texte, liens) ; texte = None si Groq est indisponible."""
     history = []
@@ -1139,15 +1155,19 @@ def agent_groq(chat_id, question, oral=False, taint=False):
         msg = resp.json()["choices"][0]["message"]
         calls = msg.get("tool_calls")
         if not calls:
-            return (msg.get("content") or "").strip(), links
+            return clean_answer(msg.get("content")), links
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
+        drafted = False
         for c in calls:
             try:
                 args = json.loads(c["function"].get("arguments") or "{}")
             except ValueError:
                 args = {}
             out = run_tool(chat_id, c["function"]["name"], args, links)
+            drafted = drafted or (c["function"]["name"] == "mail_send" and "statut" in out)
             messages.append({"role": "tool", "tool_call_id": c["id"], "content": json.dumps(out, ensure_ascii=False)[:4000]})
+        if drafted:
+            return SILENT, links
     return "", links
 
 
@@ -1183,11 +1203,12 @@ def agent(chat_id, user_parts, oral=False, taint=False):
         parts = resp.json()["candidates"][0].get("content", {}).get("parts", [])
         calls = [p["functionCall"] for p in parts if "functionCall" in p]
         if not calls:
-            return "".join(p.get("text", "") for p in parts).strip(), links
+            return clean_answer("".join(p.get("text", "") for p in parts)), links
         contents.append({"role": "model", "parts": parts})
-        contents.append({"role": "user", "parts": [
-            {"functionResponse": {"name": c["name"], "response": run_tool(chat_id, c["name"], c.get("args", {}), links)}}
-            for c in calls]})
+        outs = [(c["name"], run_tool(chat_id, c["name"], c.get("args", {}), links)) for c in calls]
+        contents.append({"role": "user", "parts": [{"functionResponse": {"name": n, "response": o}} for n, o in outs]})
+        if any(n == "mail_send" and "statut" in o for n, o in outs):
+            return SILENT, links
     return "", links
 
 
@@ -1205,6 +1226,11 @@ def ask(chat_id, question, oral=False, taint=False):
         answer, links = agent(chat_id, [{"text": question}], oral, taint)
     if answer is None:
         return links[0]
+    if answer == SILENT:
+        p = json.loads(db.get(f"pending_mail:{chat_id}") or "{}")
+        remember(chat_id, question, f"[Brouillon d'email montre, en attente de /oui] A : {', '.join(p.get('to', []))} | Sujet : "
+                                    f"{p.get('subject', '')} | Texte : {p.get('body', '')}")
+        return SILENT
     if not answer:
         return "Je n'ai pas pu formuler de reponse."
     remember(chat_id, question, answer)
@@ -1462,6 +1488,8 @@ def say_async(text):
 
 def reply(chat_id, text):
     """Repond sur Telegram ET a voix haute sur le Mac mini."""
+    if text == SILENT:
+        return
     send(chat_id, text)
     say_async(text)
 
@@ -1541,6 +1569,12 @@ def handle(msg):
     cmd, _, arg = text.partition(" ")
     cmd = cmd.split("@")[0].lower()
     arg = arg.strip()
+    if text and not text.startswith("/") and (db.get(f"pending_mail:{chat_id}") or db.get(f"pending_cmd:{chat_id}")):
+        n = norm(text)
+        if n in ("oui", "oui envoie", "envoie", "envoie le", "ok", "ok envoie", "go", "vas y", "yes", "d accord", "confirme", "oui vas y"):
+            cmd, arg = "/oui", ""
+        elif n in ("non", "annule", "stop", "no", "non annule", "laisse tomber"):
+            cmd, arg = "/non", ""
 
     owner = db.get("owner_id")
     if owner is None:
@@ -1704,6 +1738,8 @@ def handle_voice(chat_id, voice):
     audio = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{info['file_path']}", timeout=60).content
     heard, answer = ask_voice(chat_id, audio, voice.get("mime_type") or "audio/ogg")
     # Regle simple : tu parles -> je reponds en vocal, rien d'autre. Si le vocal echoue, je reponds en texte.
+    if answer == SILENT:
+        return
     if heard is None or not send_voice(chat_id, answer):
         send(chat_id, answer)
 
