@@ -28,6 +28,10 @@ KEYS = {
     "right": "DPAD_RIGHT", "ok": "DPAD_CENTER", "mute": "VOLUME_MUTE", "volume_up": "VOLUME_UP",
     "volume_down": "VOLUME_DOWN", "play_pause": "MEDIA_PLAY_PAUSE", "stop": "MEDIA_STOP", "next": "MEDIA_NEXT",
     "previous": "MEDIA_PREVIOUS", "menu": "MENU", "input": "TV_INPUT", "settings": "SETTINGS",
+    "tv": "TV", "guide": "GUIDE", "info": "INFO", "ch_up": "CHANNEL_UP", "ch_down": "CHANNEL_DOWN", "last": "LAST_CHANNEL",
+    "captions": "CAPTIONS", "rewind": "MEDIA_REWIND", "forward": "MEDIA_FAST_FORWARD", "search": "SEARCH",
+    "hdmi1": "TV_INPUT_HDMI_1", "hdmi2": "TV_INPUT_HDMI_2", "hdmi3": "TV_INPUT_HDMI_3",
+    "red": "PROG_RED", "green": "PROG_GREEN", "yellow": "PROG_YELLOW", "blue": "PROG_BLUE",
 }
 APPS = {"youtube": "https://www.youtube.com", "netflix": "https://www.netflix.com/title",
         "prime": "https://app.primevideo.com", "disney": "https://www.disneyplus.com"}
@@ -143,3 +147,13 @@ def key(name):
 def launch(app):
     link = APPS.get(app.lower(), app)
     _do(lambda r: r.send_launch_app_command(link))
+
+
+def text(txt):
+    """Tape du texte dans la zone de recherche affichee sur la tele."""
+    _do(lambda r: r.send_text(txt))
+
+
+def warm():
+    """Ouvre la connexion a l'avance pour que la premiere touche parte tout de suite."""
+    _do(lambda r: None)

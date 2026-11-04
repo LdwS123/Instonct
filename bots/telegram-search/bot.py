@@ -454,6 +454,7 @@ RE_OUT_AUTO = re.compile(_OUT.replace("(?: sur| a| dans)", "(?: en| sur)") + r"(
 RE_TV_POWER = re.compile(r"(?:jessica )?(?:allume|eteins|eteint|rallume|reveille)(?: moi)?(?: la| le)? ?(?:tele|television|tv)")
 RE_TV_APP = re.compile(r"(?:jessica )?(?:ouvre|lance|mets|met|va sur)(?: moi)?(?: l| la| le)? ?(youtube|netflix|prime(?: video)?|disney(?: plus)?)"
                        r"(?: sur| dans| de)?(?: la| le| l)? ?(?:tele|television|tv)")
+RE_TV_CHANNEL = re.compile(r"(?:jessica )?(?:mets|met|va sur|passe sur|mets moi)(?: la)? ?(?:chaine|tele|tv) (?:numero |n )?(\d{1,3})")
 RE_TV_REMOTE = re.compile(r"(?:jessica )?(?:ou est |donne moi |affiche |ouvre |montre moi )?(?:la |ma |le )?(?:tele ?commande|remote)(?: virtuelle)?")
 
 
@@ -474,7 +475,24 @@ TV_KEYBOARD = [
     [("🔉 -", "tv:volume_down"), ("🔇 Muet", "tv:mute"), ("🔊 +", "tv:volume_up")],
     [("⏮", "tv:previous"), ("⏯", "tv:play_pause"), ("⏭", "tv:next")],
     [("YouTube", "tv:app:youtube"), ("Netflix", "tv:app:netflix"), ("Prime", "tv:app:prime"), ("Disney+", "tv:app:disney")],
+    [("📺 Chaines, guide, plus...", "tv:page:2")],
 ]
+TV_KEYBOARD2 = [
+    [("1", "tv:1"), ("2", "tv:2"), ("3", "tv:3")],
+    [("4", "tv:4"), ("5", "tv:5"), ("6", "tv:6")],
+    [("7", "tv:7"), ("8", "tv:8"), ("9", "tv:9")],
+    [("↺ Derniere", "tv:last"), ("0", "tv:0"), ("📺 TV", "tv:tv")],
+    [("Chaine -", "tv:ch_down"), ("Chaine +", "tv:ch_up")],
+    [("📋 Guide", "tv:guide"), ("ℹ️ Infos", "tv:info"), ("💬 Sous-titres", "tv:captions")],
+    [("⏪", "tv:rewind"), ("⏯", "tv:play_pause"), ("⏩", "tv:forward")],
+    [("HDMI 1", "tv:hdmi1"), ("HDMI 2", "tv:hdmi2"), ("HDMI 3", "tv:hdmi3")],
+    [("🔍 Recherche", "tv:search"), ("⚙ Reglages", "tv:settings")],
+    [("↩ Telecommande", "tv:page:1")],
+]
+
+
+def _markup(rows):
+    return {"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row] for row in rows]}
 
 
 def send_remote(chat_id):
@@ -482,8 +500,8 @@ def send_remote(chat_id):
     if tvremote is None or not tvremote.paired():
         send(chat_id, "La telecommande n'est pas encore reliee a la tele. Allume la tele et envoie /pairer.")
         return
-    tg("sendMessage", chat_id=chat_id, text="Telecommande de la tele",
-       reply_markup={"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row] for row in TV_KEYBOARD]})
+    tg("sendMessage", chat_id=chat_id, text="Telecommande de la tele", reply_markup=_markup(TV_KEYBOARD))
+    threading.Thread(target=lambda: tv_do("warm"), daemon=True).start()     # connexion prete avant le premier appui
 
 
 def tv_do(action, times=1):
@@ -497,6 +515,9 @@ def tv_do(action, times=1):
             app = action.removeprefix("app:")
             tvremote.launch(app)
             return f"J'ouvre {APP_NAMES.get(app, app)} sur la tele."
+        if action == "warm":
+            tvremote.warm()
+            return "OK"
         for _ in range(max(1, min(20, times))):
             tvremote.key(action)
             if times > 1:
@@ -506,6 +527,17 @@ def tv_do(action, times=1):
         return "La tele ne repond pas. Est-elle branchee et allumee ?"
     _tv_cache["t"] = 0.0
     return "OK"
+
+
+def tv_channel(num):
+    """Tape le numero d'une chaine avec les chiffres de la telecommande."""
+    res = "OK"
+    for d in str(int(num)):
+        res = tv_do(d)
+        if res != "OK":
+            return res
+        time.sleep(0.3)
+    return f"Je mets la chaine {int(num)}."
 
 
 def tv_power(want):
@@ -549,16 +581,24 @@ def finish_pairing(chat_id, code):
 
 def handle_callback(cq):
     """Appui sur un bouton de la telecommande."""
-    answer = {"callback_query_id": cq["id"]}
     data = cq.get("data") or ""
-    if str((cq.get("from") or {}).get("id")) == db.get("owner_id") and data.startswith("tv:") and data != _N:
-        res = tv_do(data[3:])
-        if res != "OK":
-            answer["text"] = res
     try:
-        tg("answerCallbackQuery", **answer)
+        tg("answerCallbackQuery", callback_query_id=cq["id"])          # tout de suite : le bouton ne reste pas "charge"
     except Exception as e:
         log.info("reponse au bouton : %s", scrub(e)[:100])
+    if str((cq.get("from") or {}).get("id")) != db.get("owner_id") or not data.startswith("tv:") or data == _N:
+        return
+    msg = cq.get("message") or {}
+    if data.startswith("tv:page:"):                                      # change de page du clavier sur place
+        rows = TV_KEYBOARD2 if data.endswith("2") else TV_KEYBOARD
+        try:
+            tg("editMessageReplyMarkup", chat_id=msg["chat"]["id"], message_id=msg["message_id"], reply_markup=_markup(rows))
+        except Exception as e:
+            log.info("changement de page : %s", scrub(e)[:100])
+        return
+    res = tv_do(data[3:])
+    if res != "OK" and msg:
+        send(msg["chat"]["id"], res)
 
 
 def quick_music(text):
@@ -570,6 +610,9 @@ def quick_music(text):
     m = RE_TV_POWER.fullmatch(t)
     if m:
         return tv_power("on" if t.split()[0] in ("allume", "rallume", "reveille") else "off")
+    m = RE_TV_CHANNEL.fullmatch(t)
+    if m:
+        return tv_channel(m.group(1))
     m = RE_TV_APP.fullmatch(t)
     if m:
         return tv_do("app:" + m.group(1).split()[0])
@@ -638,8 +681,9 @@ TOOLS = [{"functionDeclarations": [
     {"name": "tv_remote", "description": "Telecommande de la television Sony. action : power (marche/arret), home, back, up, down, left, right, ok, "
      "menu, input (source), mute, volume_up, volume_down (volume de la TELE, par crans), play_pause, stop, next, previous, "
      "ou une appli a ouvrir : youtube, netflix, prime, disney. times = nombre d'appuis (ex. 5 crans de volume). "
-     "Pour allumer/eteindre, utilise power_on ou power_off (verifie l'etat avant).",
-     "parameters": {"type": "object", "properties": {"action": {"type": "string"}, "times": {"type": "integer"}}, "required": ["action"]}},
+     "Pour allumer/eteindre, utilise power_on ou power_off (verifie l'etat avant). Autres : channel (value = numero de chaine), "
+     "type (value = texte a taper dans la recherche affichee), ch_up, ch_down, guide, info, captions, rewind, forward, hdmi1, hdmi2, hdmi3, search, settings.",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string"}, "times": {"type": "integer"}, "value": {"type": "string"}}, "required": ["action"]}},
     {"name": "show_on_screen", "description": "Affiche un message sur l'ecran du Mac mini pendant 1 minute.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "set_reminder", "description": "Programme un rappel dans N minutes (Telegram + voix du Mac mini).",
@@ -685,6 +729,14 @@ def run_tool(chat_id, name, args, links):
             act = str(args.get("action", "")).lower()
             if act in ("power_on", "power_off"):
                 return {"resultat": tv_power(act[6:])}
+            if act == "channel":
+                return {"resultat": tv_channel(re.sub(r"\D", "", str(args.get("value", ""))) or 0)}
+            if act == "type":
+                try:
+                    tvremote.text(str(args.get("value", "")))
+                    return {"resultat": "texte tape"}
+                except Exception as e:
+                    return {"erreur": "la tele ne repond pas : " + type(e).__name__}
             res = tv_do(act, int(args.get("times", 1) or 1))
             return {"resultat": "fait" if res == "OK" else res}
         if name == "change_volume":
