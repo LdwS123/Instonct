@@ -1571,7 +1571,7 @@ def handle(msg):
     arg = arg.strip()
     if text and not text.startswith("/") and (db.get(f"pending_mail:{chat_id}") or db.get(f"pending_cmd:{chat_id}")):
         n = norm(text)
-        if n in ("oui", "oui envoie", "envoie", "envoie le", "ok", "ok envoie", "go", "vas y", "yes", "d accord", "confirme", "oui vas y"):
+        if n in ("oui", "oui envoie", "envoie", "envoie le", "ok", "ok envoie", "go", "vas-y", "yes", "d'accord", "confirme", "oui vas-y"):
             cmd, arg = "/oui", ""
         elif n in ("non", "annule", "stop", "no", "non annule", "laisse tomber"):
             cmd, arg = "/non", ""
