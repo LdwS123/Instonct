@@ -1,0 +1,19 @@
+#!/bin/bash
+# Tableau de bord affiche sur l'ecran du Mac mini (tty1), rafraichi toutes les 2 s.
+export TERM=linux
+while true; do
+  clear
+  echo "=== $(hostname)  -  $(date '+%d/%m/%Y %H:%M:%S') ==="
+  echo "IP     : $(hostname -I | awk '{print $1}')"
+  echo "Uptime : $(uptime -p)"
+  echo "Charge : $(cut -d' ' -f1-3 /proc/loadavg)"
+  for h in /sys/class/hwmon/hwmon*; do
+    [ "$(cat $h/name 2>/dev/null)" = coretemp ] && echo "CPU    : $(( $(cat $h/temp2_input) / 1000 )) C"
+  done
+  echo
+  free -h | awk 'NR<=2'
+  echo
+  echo "Services bots :"
+  systemctl list-units 'bot-*' --no-legend --plain 2>/dev/null | awk '{print "  "$1" "$3}' | grep . || echo "  (aucun pour l instant)"
+  sleep 2
+done

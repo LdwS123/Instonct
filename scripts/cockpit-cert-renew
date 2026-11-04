@@ -1,0 +1,10 @@
+#!/bin/bash
+# Renouvelle le certificat HTTPS Tailscale et l'installe pour Cockpit.
+# Prerequis : "HTTPS Certificates" active dans la console admin Tailscale (onglet DNS).
+set -e
+D=$(tailscale status --json | python3 -c 'import sys,json; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')
+tailscale cert --cert-file /tmp/$D.crt --key-file /tmp/$D.key "$D"
+install -m 644 -o root -g root /tmp/$D.crt /etc/cockpit/ws-certs.d/1-tailscale.cert
+install -m 640 -o root -g cockpit-ws /tmp/$D.key /etc/cockpit/ws-certs.d/1-tailscale.key
+rm -f /tmp/$D.crt /tmp/$D.key
+systemctl restart cockpit.service 2>/dev/null || true

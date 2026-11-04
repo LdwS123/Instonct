@@ -1,0 +1,17 @@
+[Unit]
+Description=Tableau de bord sur l ecran (tty1)
+After=systemd-user-sessions.service
+Conflicts=getty@tty1.service
+
+[Service]
+ExecStart=/usr/local/bin/ecran-status
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

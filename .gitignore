@@ -1,0 +1,9 @@
+# Jamais de secrets dans ce depot
+.env
+*.env
+*.key
+*.pem
+*.cert
+*.crt
+id_*
+*.token
