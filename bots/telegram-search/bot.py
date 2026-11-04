@@ -370,6 +370,20 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "set_reminder", "description": "Programme un rappel dans N minutes (Telegram + voix du Mac mini).",
      "parameters": {"type": "object", "properties": {"minutes": {"type": "integer"}, "text": {"type": "string"}}, "required": ["minutes", "text"]}},
+    {"name": "remember", "description": "Retient durablement une info sur l'utilisateur ou ses preferences (memoire longue, survit aux redemarrages). "
+     "Utilise-la des que l'utilisateur dit 'retiens', 'souviens-toi' ou donne une info personnelle utile.",
+     "parameters": {"type": "object", "properties": {"fact": {"type": "string"}}, "required": ["fact"]}},
+    {"name": "forget", "description": "Oublie les souvenirs contenant ce texte.",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+    {"name": "send_file", "description": "Envoie un fichier du Mac mini a l'utilisateur dans Telegram (chemin complet, 50 Mo max).",
+     "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "schedule_task", "description": "Programme une tache que TU executeras plus tard toute seule (avec tous tes outils) et dont tu enverras le resultat. "
+     "Ex : 'dans 60 minutes, verifie l'espace disque' ou 'toutes les 1440 minutes, donne-moi la meteo de Paris'. repeat_minutes = 0 pour une seule fois.",
+     "parameters": {"type": "object", "properties": {"in_minutes": {"type": "integer"}, "instruction": {"type": "string"},
+                                                      "repeat_minutes": {"type": "integer"}}, "required": ["in_minutes", "instruction"]}},
+    {"name": "list_tasks", "description": "Liste les taches programmees."},
+    {"name": "cancel_tasks", "description": "Annule les taches programmees dont l'instruction contient ce texte (ou toutes si vide).",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}},
     {"name": "get_status", "description": "Etat du Mac mini : processeur, memoire, disque, temperature."},
     {"name": "fetch_url", "description": "Lit le texte d'une page web (lien donne par l'utilisateur ou trouve en recherche).",
      "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
@@ -404,6 +418,40 @@ def run_tool(chat_id, name, args, links):
             return {"resultat": add_reminder(chat_id, f"{int(args.get('minutes', 1))} {args.get('text', '')}")}
         if name == "get_status":
             return {"resultat": status()}
+        if name == "remember":
+            db.hset("memory", uuid.uuid4().hex[:8], str(args.get("fact", ""))[:300])
+            return {"resultat": "retenu"}
+        if name == "forget":
+            n = 0
+            for k, v in db.hgetall("memory").items():
+                if str(args.get("text", "")).lower() in v.lower():
+                    db.hdel("memory", k)
+                    n += 1
+            return {"resultat": f"{n} souvenir(s) oublie(s)"}
+        if name == "send_file":
+            path = os.path.expanduser(str(args.get("path", "")))
+            if re.search(r"\.env\b|id_rsa|shadow", path) or not os.path.isfile(path):
+                return {"erreur": "fichier introuvable ou sensible"}
+            with open(path, "rb") as f:
+                requests.post(f"{TG}/sendDocument", data={"chat_id": chat_id}, files={"document": (os.path.basename(path), f)}, timeout=120)
+            return {"resultat": "envoye"}
+        if name == "schedule_task":
+            rep_min = max(0, int(args.get("repeat_minutes", 0) or 0))
+            if 0 < rep_min < 5:
+                rep_min = 5
+            delay = max(1, int(args.get("in_minutes", 1)))
+            db.zadd("tasks", {json.dumps({"chat": chat_id, "prompt": str(args.get("instruction", ""))[:300], "repeat": rep_min,
+                                          "id": uuid.uuid4().hex}): time.time() + delay * 60})
+            return {"resultat": f"programmee dans {delay} min" + (f", puis toutes les {rep_min} min" if rep_min else "")}
+        if name == "list_tasks":
+            return {"taches": [f"{json.loads(r)['prompt']} (repete toutes les {json.loads(r)['repeat']} min)" if json.loads(r)["repeat"]
+                               else json.loads(r)["prompt"] for r in db.zrange("tasks", 0, -1)] or "aucune"}
+        if name == "cancel_tasks":
+            n = 0
+            for r in db.zrange("tasks", 0, -1):
+                if str(args.get("text", "")).lower() in json.loads(r)["prompt"].lower():
+                    n += db.zrem("tasks", r)
+            return {"resultat": f"{n} tache(s) annulee(s)"}
         if name == "fetch_url":
             html = requests.get(str(args.get("url", "")), timeout=15, headers={"User-Agent": "Mozilla/5.0"}).text
             text = re.sub(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html, flags=re.S)
@@ -423,8 +471,10 @@ def agent(chat_id, user_parts):
     history = [json.loads(x) for x in db.lrange(f"hist:{chat_id}", 0, -1)]
     contents = history + [{"role": "user", "parts": user_parts}]
     links = []
+    memory = list(db.hvals("memory"))[-60:]
+    system = SYSTEM + (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "")
     for _ in range(10):
-        resp = call_gemini({"systemInstruction": {"parts": [{"text": SYSTEM}]}, "contents": contents, "tools": TOOLS})
+        resp = call_gemini({"systemInstruction": {"parts": [{"text": system}]}, "contents": contents, "tools": TOOLS})
         if resp.status_code == 429:
             return None, ["Limite gratuite Gemini atteinte pour le moment, reessaie dans une minute."]
         if resp.status_code in (500, 503):
@@ -704,6 +754,14 @@ def add_reminder(chat_id, arg):
     return f"C'est note, je te previens dans {minutes} min."
 
 
+def run_task(t):
+    """Execute une tache programmee : l'agent la realise puis envoie le resultat."""
+    try:
+        reply(t["chat"], ask(t["chat"], "[Tache programmee, execute-la maintenant] " + t["prompt"]))
+    except Exception as e:
+        log.error("tache en erreur : %s", scrub(e))
+
+
 def reminder_loop():
     """Thread : envoie les rappels arrives a echeance (stockes dans Redis, survivent a un redemarrage)."""
     while True:
@@ -717,6 +775,12 @@ def reminder_loop():
                         speak(r["text"], times=2, voice=VOICE_FR, speed=150)
                     except Exception as e:
                         log.warning("voix indisponible : %s", scrub(e))
+            for raw in db.zrangebyscore("tasks", 0, time.time()):
+                if db.zrem("tasks", raw):
+                    t = json.loads(raw)
+                    if t["repeat"]:
+                        db.zadd("tasks", {raw: time.time() + t["repeat"] * 60})
+                    threading.Thread(target=run_task, args=(t,), daemon=True).start()
         except Exception as e:
             log.error("erreur rappels : %s", scrub(e))
         time.sleep(5)
