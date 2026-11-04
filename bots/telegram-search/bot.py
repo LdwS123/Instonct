@@ -579,6 +579,9 @@ def finish_pairing(chat_id, code):
     send_remote(chat_id)
 
 
+_tv_err = {"t": 0.0}
+
+
 def handle_callback(cq):
     """Appui sur un bouton de la telecommande."""
     data = cq.get("data") or ""
@@ -597,7 +600,8 @@ def handle_callback(cq):
             log.info("changement de page : %s", scrub(e)[:100])
         return
     res = tv_do(data[3:])
-    if res != "OK" and msg:
+    if res != "OK" and msg and time.time() - _tv_err["t"] > 10:        # un seul message d'erreur, pas dix
+        _tv_err["t"] = time.time()
         send(msg["chat"]["id"], res)
 
 

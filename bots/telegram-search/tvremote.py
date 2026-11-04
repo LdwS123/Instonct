@@ -8,6 +8,7 @@ import logging
 import os
 import socket
 import threading
+import time
 
 from androidtvremote2 import AndroidTVRemote, CannotConnect, ConnectionClosed
 
@@ -100,9 +101,22 @@ async def _send(fn):
                 raise
 
 
+_down = {"until": 0.0}
+
+
 def _do(fn):
-    with _lock:
+    """Une touche a la fois. Si la tele ne repond pas, on abandonne vite (6 s de pause) au lieu d'empiler les essais."""
+    if time.time() < _down["until"]:
+        raise ConnectionClosed("tele injoignable (pause)")
+    if not _lock.acquire(timeout=4):
+        raise ConnectionClosed("telecommande occupee")
+    try:
         _run(_send(fn), timeout=25)
+    except Exception:
+        _down["until"] = time.time() + 6
+        raise
+    finally:
+        _lock.release()
 
 
 def mac():
