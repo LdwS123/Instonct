@@ -53,7 +53,7 @@ SYSTEM = (
     "Des resultats de recherche web te sont fournis avec la question : appuie-toi dessus pour les faits "
     "recents ou verifiables, et dis-le honnetement s'ils ne suffisent pas. "
     "Ecris en texte brut, sans markdown (pas d'asterisques ni de dieses). "
-    "Tu es un AGENT : tu as des outils pour agir sur le Mac mini (musique YouTube, volume, ecran, rappels, etat, "
+    "Tu es un AGENT : tu as des outils pour agir sur le Mac mini (musique YouTube, volume, ecran, rappels, etat, telecommande de la tele Sony, "
     "commandes shell) et pour chercher sur le web. Tu peux TOUT faire sur le Mac mini via run_command : "
     "fichiers, installer des logiciels, scripts, services, reseau. Agis directement et enchaine les etapes "
     "jusqu'a ce que la tache soit finie, sans demander la permission (seules les commandes destructrices "
@@ -78,7 +78,9 @@ AIDE = (
     "/meteo <ville> : meteo du moment\n"
     "/blague : une blague\n"
     "/de [faces] : lance un de (6 par defaut)\n"
-    "/musique <titre> : joue la musique YouTube sur le Mac mini (/pause, /reprendre, /stop)\n"
+    "/musique <titre> : joue la musique YouTube (/pause, /reprendre, /stop)\n"
+    "/telecommande : telecommande de la tele avec des boutons (la premiere fois : /pairer puis /code)\n"
+    "/sortie auto|tele|mac : ou sort le son (auto = tele si allumee, sinon Mac mini)\n"
     "/oui, /non : confirmer ou annuler une commande demandee par l'assistant\n"
     "/pile : pile ou face\n"
     "/heure : date et heure du serveur\n"
@@ -91,6 +93,7 @@ MENU = [
     ("voix", "Voix du Mac mini : on / off"), ("volume", "Volume du Mac mini 0-100"), ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
     ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
     ("musique", "Jouer une musique YouTube"), ("pause", "Pause"), ("reprendre", "Reprendre la musique"),
+    ("telecommande", "Telecommande de la tele"), ("sortie", "Son : auto, tele ou mac"),
     ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
 ]
 
@@ -263,13 +266,44 @@ def tv_up():
         return False
 
 
+_tv_cache = {"t": 0.0, "on": False}
+
+
+def tv_on():
+    """True si la tele est branchee ET allumee (pas en veille). Reponse gardee 8 s pour ne pas la harceler."""
+    now = time.time()
+    if now - _tv_cache["t"] < 8:
+        return _tv_cache["on"]
+    on = False
+    if tv_up():
+        try:
+            import pychromecast
+            cc = pychromecast.get_chromecast_from_host((CAST_HOST, 8009, None, None, None))
+            try:
+                cc.wait(timeout=5)
+                on = not cc.status.is_stand_by
+            finally:
+                cc.disconnect()
+        except Exception as e:
+            log.info("etat de la tele inconnu : %s", type(e).__name__)
+    _tv_cache.update(t=now, on=on)
+    return on
+
+
 def use_tv():
-    """Le son va sur la tele si l'utilisateur l'a demande ET si elle repond ; sinon sur le Mac mini."""
-    return db.get("sortie") == "tv" and tv_up()
+    """Ou sort le son ? 'auto' (par defaut) : sur la tele si elle est allumee, sinon sur le Mac mini ;
+    'tv' : sur la tele des qu'elle repond ; 'mac' : toujours sur le Mac mini."""
+    mode = db.get("sortie") or "auto"
+    if mode == "mac":
+        return False
+    return tv_up() if mode == "tv" else tv_on()
 
 
 def catt(*args, timeout=60):
-    r = subprocess.run([CATT, "-d", CAST_HOST, *args], capture_output=True, text=True, timeout=timeout)
+    try:
+        r = subprocess.run([CATT, "-d", CAST_HOST, *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return ""
     return r.stdout.strip()
 
 
@@ -343,8 +377,8 @@ def music_restore(state):
 
 
 def set_output(mode):
-    """Choisit ou sort le son : 'tv' (Chromecast) ou 'mac' (haut-parleur du Mac mini). La musique suit."""
-    mode = "tv" if mode == "tv" else "mac"
+    """Choisit ou sort le son : 'auto' (tele si allumee, sinon Mac mini), 'tv' ou 'mac'. La musique suit."""
+    mode = mode if mode in ("tv", "mac") else "auto"
     if mode == "tv" and not tv_up():
         return "La tele ne repond pas. Allume-la d'abord."
     state = music_suspend()
@@ -352,8 +386,11 @@ def set_output(mode):
         with _music_lock:
             _music_kill()
     db.set("sortie", mode)
+    _tv_cache["t"] = 0.0                                # on refait la verification tout de suite
     if state:
         music_restore(state)
+    if mode == "auto":
+        return "C'est fait : le son sort sur la tele quand elle est allumee, sinon sur le Mac mini."
     return "C'est fait, le son sort maintenant sur " + ("la tele." if mode == "tv" else "le Mac mini.")
 
 
@@ -411,6 +448,117 @@ RE_PLAY = re.compile(r"(?:jessica )?(?:peux tu |tu peux )?(?:mets|met|joue|lance
 _OUT = r"(?:jessica )?(?:re)?(?:mets|met|passe|envoie|bascule|joue)(?: moi)?(?: le| la| du| les)?(?: son| musique| audio| voix)?(?: sur| a| dans)(?: la| le| les| l)? ?"
 RE_OUT_TV = re.compile(_OUT + r"(?:tele|television|tv|chromecast)")
 RE_OUT_MAC = re.compile(_OUT + r"(?:mac|mac mini|ordinateur|ordi|haut parleurs?|enceintes?)")
+RE_OUT_AUTO = re.compile(_OUT.replace("(?: sur| a| dans)", "(?: en| sur)") + r"(?:auto|automatique)|sortie (?:en )?auto(?:matique)?")
+
+# telecommande : "allume la tele", "eteins la tele", "ouvre youtube sur la tele", "telecommande"...
+RE_TV_POWER = re.compile(r"(?:jessica )?(?:allume|eteins|eteint|rallume|reveille)(?: moi)?(?: la| le)? ?(?:tele|television|tv)")
+RE_TV_APP = re.compile(r"(?:jessica )?(?:ouvre|lance|mets|met|va sur)(?: moi)?(?: l| la| le)? ?(youtube|netflix|prime(?: video)?|disney(?: plus)?)"
+                       r"(?: sur| dans| de)?(?: la| le| l)? ?(?:tele|television|tv)")
+RE_TV_REMOTE = re.compile(r"(?:jessica )?(?:ou est |donne moi |affiche |ouvre |montre moi )?(?:la |ma |le )?(?:tele ?commande|remote)(?: virtuelle)?")
+
+
+# ---------------------------------------------------------------- telecommande virtuelle
+try:
+    import tvremote
+except Exception as _e:                                # la musique et le reste marchent meme sans telecommande
+    tvremote = None
+    logging.getLogger("bot").warning("telecommande indisponible : %s", _e)
+
+APP_NAMES = {"youtube": "YouTube", "netflix": "Netflix", "prime": "Prime Video", "disney": "Disney+"}
+_N = "tv:noop"
+TV_KEYBOARD = [
+    [("⏻ Marche/Arret", "tv:power"), ("🔀 Source", "tv:input"), ("🏠 Accueil", "tv:home")],
+    [("·", _N), ("▲", "tv:up"), ("·", _N)],
+    [("◀", "tv:left"), ("OK", "tv:ok"), ("▶", "tv:right")],
+    [("↩ Retour", "tv:back"), ("▼", "tv:down"), ("☰ Menu", "tv:menu")],
+    [("🔉 -", "tv:volume_down"), ("🔇 Muet", "tv:mute"), ("🔊 +", "tv:volume_up")],
+    [("⏮", "tv:previous"), ("⏯", "tv:play_pause"), ("⏭", "tv:next")],
+    [("YouTube", "tv:app:youtube"), ("Netflix", "tv:app:netflix"), ("Prime", "tv:app:prime"), ("Disney+", "tv:app:disney")],
+]
+
+
+def send_remote(chat_id):
+    """Envoie la telecommande : des boutons sous le message."""
+    if tvremote is None or not tvremote.paired():
+        send(chat_id, "La telecommande n'est pas encore reliee a la tele. Allume la tele et envoie /pairer.")
+        return
+    tg("sendMessage", chat_id=chat_id, text="Telecommande de la tele",
+       reply_markup={"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row] for row in TV_KEYBOARD]})
+
+
+def tv_do(action, times=1):
+    """Appuie sur une touche de la tele ('home', 'volume_up'...) ou ouvre une appli ('app:youtube'). Renvoie une phrase."""
+    if tvremote is None:
+        return "La telecommande n'est pas installee."
+    if not tvremote.paired():
+        return "La telecommande n'est pas encore reliee a la tele. Envoie /pairer."
+    try:
+        if action.startswith("app:") or action in APP_NAMES:
+            app = action.removeprefix("app:")
+            tvremote.launch(app)
+            return f"J'ouvre {APP_NAMES.get(app, app)} sur la tele."
+        for _ in range(max(1, min(20, times))):
+            tvremote.key(action)
+            if times > 1:
+                time.sleep(0.25)
+    except Exception as e:
+        log.warning("telecommande : %s %s", type(e).__name__, scrub(e)[:100])
+        return "La tele ne repond pas. Est-elle branchee et allumee ?"
+    _tv_cache["t"] = 0.0
+    return "OK"
+
+
+def tv_power(want):
+    """Allume ('on') ou eteint ('off') la tele, en verifiant d'abord dans quel etat elle est."""
+    on = tv_on()
+    if want == "on" and on:
+        return "La tele est deja allumee."
+    if want == "off" and not on:
+        return "La tele est deja eteinte."
+    res = tv_do("power")
+    return ("Je l'allume." if want == "on" else "Je l'eteins.") if res == "OK" else res
+
+
+def start_pairing(chat_id):
+    if tvremote is None:
+        send(chat_id, "La telecommande n'est pas installee.")
+        return
+    try:
+        tvremote.start_pairing()
+    except Exception as e:
+        log.warning("appairage : %s %s", type(e).__name__, scrub(e)[:100])
+        send(chat_id, "Je n'arrive pas a joindre la tele. Allume-la, attends 10 secondes et reessaie /pairer.")
+        return
+    send(chat_id, "Regarde la tele : un code de 6 caracteres s'affiche. Envoie-le moi comme ca : /code A1B2C3")
+
+
+def finish_pairing(chat_id, code):
+    code = re.sub(r"\W", "", code).upper()
+    if len(code) != 6:
+        send(chat_id, "Le code a 6 caracteres. Exemple : /code A1B2C3")
+        return
+    try:
+        tvremote.finish_pairing(code)
+    except Exception as e:
+        log.warning("appairage : %s %s", type(e).__name__, scrub(e)[:100])
+        send(chat_id, "Ca n'a pas marche (mauvais code ?). Envoie /pairer pour recommencer.")
+        return
+    send(chat_id, "C'est relie ! Voici ta telecommande :")
+    send_remote(chat_id)
+
+
+def handle_callback(cq):
+    """Appui sur un bouton de la telecommande."""
+    answer = {"callback_query_id": cq["id"]}
+    data = cq.get("data") or ""
+    if str((cq.get("from") or {}).get("id")) == db.get("owner_id") and data.startswith("tv:") and data != _N:
+        res = tv_do(data[3:])
+        if res != "OK":
+            answer["text"] = res
+    try:
+        tg("answerCallbackQuery", **answer)
+    except Exception as e:
+        log.info("reponse au bouton : %s", scrub(e)[:100])
 
 
 def quick_music(text):
@@ -419,10 +567,18 @@ def quick_music(text):
     t = re.sub(r"\s+", " ", t).strip()
     if len(t.split()) > 12:
         return None
+    m = RE_TV_POWER.fullmatch(t)
+    if m:
+        return tv_power("on" if t.split()[0] in ("allume", "rallume", "reveille") else "off")
+    m = RE_TV_APP.fullmatch(t)
+    if m:
+        return tv_do("app:" + m.group(1).split()[0])
     if RE_OUT_TV.fullmatch(t):
         return set_output("tv")
     if RE_OUT_MAC.fullmatch(t):
         return set_output("mac")
+    if RE_OUT_AUTO.fullmatch(t):
+        return set_output("auto")
     vol = quick_volume(t)
     if vol:
         return vol
@@ -476,8 +632,14 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"delta": {"type": "integer"}}, "required": ["delta"]}},
     {"name": "set_volume", "description": "Regle le volume du Mac mini a une valeur precise (0 a 100).",
      "parameters": {"type": "object", "properties": {"percent": {"type": "integer"}}, "required": ["percent"]}},
-    {"name": "set_output", "description": "Choisit ou sort le son (voix et musique) : 'tv' = la television Sony (Chromecast), 'mac' = le haut-parleur du Mac mini.",
-     "parameters": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["tv", "mac"]}}, "required": ["mode"]}},
+    {"name": "set_output", "description": "Choisit ou sort le son (voix et musique) : 'auto' = la tele quand elle est allumee sinon le Mac mini (par defaut), "
+     "'tv' = toujours la television Sony, 'mac' = toujours le haut-parleur du Mac mini.",
+     "parameters": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["auto", "tv", "mac"]}}, "required": ["mode"]}},
+    {"name": "tv_remote", "description": "Telecommande de la television Sony. action : power (marche/arret), home, back, up, down, left, right, ok, "
+     "menu, input (source), mute, volume_up, volume_down (volume de la TELE, par crans), play_pause, stop, next, previous, "
+     "ou une appli a ouvrir : youtube, netflix, prime, disney. times = nombre d'appuis (ex. 5 crans de volume). "
+     "Pour allumer/eteindre, utilise power_on ou power_off (verifie l'etat avant).",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string"}, "times": {"type": "integer"}}, "required": ["action"]}},
     {"name": "show_on_screen", "description": "Affiche un message sur l'ecran du Mac mini pendant 1 minute.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "set_reminder", "description": "Programme un rappel dans N minutes (Telegram + voix du Mac mini).",
@@ -519,6 +681,12 @@ def run_tool(chat_id, name, args, links):
             return {"resultat": music_control(args.get("action", "stop"))}
         if name == "set_output":
             return {"resultat": set_output(str(args.get("mode", "mac")))}
+        if name == "tv_remote":
+            act = str(args.get("action", "")).lower()
+            if act in ("power_on", "power_off"):
+                return {"resultat": tv_power(act[6:])}
+            res = tv_do(act, int(args.get("times", 1) or 1))
+            return {"resultat": "fait" if res == "OK" else res}
         if name == "change_volume":
             return {"resultat": change_volume(int(args.get("delta", 15)))}
         if name == "set_volume":
@@ -753,9 +921,9 @@ VOICE_FR = os.environ.get("VOICE_FR", "mb-fr1")  # voix francaise masculine MBRO
 _speak_lock = threading.Lock()                    # une seule voix a la fois
 
 
-def set_volume(pct):
+def set_volume(pct, mac_only=False):
     """Regle le volume (0-100 %) de la tele ou de la carte son du Mac mini. Trop fort, ca peut grésiller."""
-    if use_tv():
+    if not mac_only and use_tv():
         catt("volume", str(pct))
         return
     for ctl in ("Master", "Speaker", "Headphone", "PCM"):
@@ -1022,6 +1190,15 @@ def handle(msg):
         send(chat_id, music_play(arg) if arg else "Utilisation : /musique daft punk one more time")
     elif cmd in ("/stop", "/pause", "/reprendre"):
         send(chat_id, music_control({"/stop": "stop", "/pause": "pause", "/reprendre": "resume"}[cmd]))
+    elif cmd in ("/telecommande", "/tele"):
+        send_remote(chat_id)
+    elif cmd == "/pairer":
+        start_pairing(chat_id)
+    elif cmd == "/code":
+        finish_pairing(chat_id, arg)
+    elif cmd == "/sortie":
+        mode = {"tele": "tv", "tv": "tv", "mac": "mac", "auto": "auto"}.get(norm(arg))
+        send(chat_id, set_output(mode) if mode else f"Sortie du son : {db.get('sortie') or 'auto'}. Utilisation : /sortie auto, /sortie tele ou /sortie mac")
     elif cmd == "/oui":
         pending = db.get(f"pending_cmd:{chat_id}")
         if not pending:
@@ -1092,6 +1269,9 @@ def handle(msg):
     elif cmd.startswith("/"):
         send(chat_id, "Commande inconnue. Tape /aide pour la liste.")
     else:
+        if RE_TV_REMOTE.fullmatch(norm(text)):
+            send_remote(chat_id)
+            return
         quick = quick_music(text)                      # ordres de musique simples : instantane, sans IA
         if quick:
             send(chat_id, quick)
@@ -1157,16 +1337,18 @@ def main():
     except Exception as e:
         log.warning("menu des commandes non mis a jour : %s", scrub(e))
     if db.get("volume"):
-        set_volume(int(db.get("volume")))
+        set_volume(int(db.get("volume")), mac_only=True)       # le volume memorise est celui du Mac mini, pas de la tele
     threading.Thread(target=reminder_loop, daemon=True).start()
     offset = None
     while True:
         try:
-            params = {"timeout": 50, "allowed_updates": ["message"]}
+            params = {"timeout": 50, "allowed_updates": ["message", "callback_query"]}
             if offset:
                 params["offset"] = offset
             for upd in tg("getUpdates", **params).get("result", []):
                 offset = upd["update_id"] + 1
+                if "callback_query" in upd:
+                    threading.Thread(target=handle_callback, args=(upd["callback_query"],), daemon=True).start()
                 if "message" in upd:
                     # un thread par message : une commande lente (voix, recherche) ne bloque plus les suivantes
                     threading.Thread(target=safe_handle, args=(upd["message"],), daemon=True).start()
