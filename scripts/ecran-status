@@ -1,9 +1,14 @@
 #!/bin/bash
 # Tableau de bord affiche sur l'ecran du Mac mini (tty1), rafraichi toutes les 2 s.
+# Si le bot Telegram a depose un message dans Redis (commande /ecran), il s'affiche en haut.
 export TERM=linux
 while true; do
   clear
   echo "=== $(hostname)  -  $(date '+%d/%m/%Y %H:%M:%S') ==="
+  MSG=$(redis-cli --no-raw get ecran_msg 2>/dev/null | tr -d '"')
+  if [ -n "$MSG" ] && [ "$MSG" != "(nil)" ]; then
+    printf '\n\033[1;35m   >>>  %s  <<<\033[0m\n\n' "$MSG"
+  fi
   echo "IP     : $(hostname -I | awk '{print $1}')"
   echo "Uptime : $(uptime -p)"
   echo "Charge : $(cut -d' ' -f1-3 /proc/loadavg)"
