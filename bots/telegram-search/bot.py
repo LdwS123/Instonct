@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import random
+import re
 import subprocess
 import threading
 import time
@@ -33,7 +34,9 @@ HISTORY_TTL = 3600         # 1 h
 TG = f"https://api.telegram.org/bot{TOKEN}"
 GEMINI = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
 SYSTEM = (
-    "Tu es un assistant personnel sur Telegram. Reponds en francais, de facon claire et concise. "
+    "Tu es Jessica-OS, un majordome numerique dans le style de Jarvis : calme, poli, une pointe d'humour "
+    "elegant. Tes reponses sont aussi lues a voix haute : phrases courtes, 4 phrases maximum sauf si on te "
+    "demande du detail, aucun symbole ni liste. Reponds en francais. "
     "Des resultats de recherche web te sont fournis avec la question : appuie-toi dessus pour les faits "
     "recents ou verifiables, et dis-le honnetement s'ils ne suffisent pas. "
     "Ecris en texte brut, sans markdown (pas d'asterisques ni de dieses)."
@@ -46,6 +49,7 @@ AIDE = (
     "/temp : temperature du processeur\n"
     "/dis <texte> : le Mac mini le dit en anglais, 3 fois\n"
     "/parle <texte> : pareil, avec une voix francaise\n"
+    "/voix on|off : le Mac mini lit mes reponses a voix haute (active par defaut)\n"
     "/ecran <texte> : affiche un message sur l'ecran du Mac mini (1 min)\n"
     "/rappel <minutes> <texte> : je te previens (et le Mac mini parle)\n"
     "/meteo <ville> : meteo du moment\n"
@@ -59,7 +63,7 @@ AIDE = (
 MENU = [
     ("aide", "Liste des commandes"), ("status", "Etat du Mac mini"), ("temp", "Temperature CPU"),
     ("dis", "Le Mac mini parle (anglais)"), ("parle", "Le Mac mini parle (francais)"),
-    ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
+    ("voix", "Voix du Mac mini : on / off"), ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
     ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
     ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
 ]
@@ -189,15 +193,52 @@ def status():
             f"Services :\n{svc}")
 
 
-def speak(text, times=1, voice="en-us", speed=125):
+VOICE_FR = os.environ.get("VOICE_FR", "mb-fr1")  # voix francaise masculine MBROLA, plus naturelle
+_speak_lock = threading.Lock()                    # une seule voix a la fois
+
+
+def speak(text, times=1, voice="en-us", speed=125, limit=200):
     """Fait parler le Mac mini (espeak-ng -> carte son). Sans effet si rien n'est branche."""
-    text = text[:200]
-    for _ in range(times):
-        tts = subprocess.Popen(["espeak-ng", "-v", voice, "-s", str(speed), "-a", "200", "--stdout", text],
-                               stdout=subprocess.PIPE)
-        subprocess.run(["aplay", "-q", "-D", "plughw:0,0"], stdin=tts.stdout, timeout=40)
-        tts.wait()
-        time.sleep(1)
+    text = text[:limit]
+    with _speak_lock:
+        for _ in range(times):
+            tts = subprocess.Popen(["espeak-ng", "-v", voice, "-s", str(speed), "-a", "200", "--stdout", text],
+                                   stdout=subprocess.PIPE)
+            subprocess.run(["aplay", "-q", "-D", "plughw:0,0"], stdin=tts.stdout, timeout=90)
+            tts.wait()
+            time.sleep(1 if times > 1 else 0)
+
+
+def clean_for_speech(text):
+    """Enleve liens et symboles, garde les premieres phrases (max ~400 caracteres)."""
+    text = text.split("\n\nSources :")[0]
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[*_#`>\[\]{}|~]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > 400:
+        cut = text[:400]
+        text = cut[:cut.rfind(". ") + 1] if ". " in cut else cut
+    return text
+
+
+def say_async(text):
+    """Lit le texte a voix haute (en arriere-plan) si le mode voix est actif."""
+    if db.get("voice_off"):
+        return
+    text = clean_for_speech(text)
+    if text:
+        def run():
+            try:
+                speak(text, voice=VOICE_FR, speed=150, limit=400)
+            except Exception as e:
+                log.warning("voix indisponible : %s", scrub(e))
+        threading.Thread(target=run, daemon=True).start()
+
+
+def reply(chat_id, text):
+    """Repond sur Telegram ET a voix haute sur le Mac mini."""
+    send(chat_id, text)
+    say_async(text)
 
 
 def screen_message(text):
@@ -242,7 +283,7 @@ def reminder_loop():
                     send(r["chat"], "Rappel : " + r["text"])
                     screen_message("RAPPEL : " + r["text"])
                     try:
-                        speak(r["text"], times=2, voice="fr")
+                        speak(r["text"], times=2, voice=VOICE_FR, speed=150)
                     except Exception as e:
                         log.warning("voix indisponible : %s", scrub(e))
         except Exception as e:
@@ -278,7 +319,7 @@ def handle(msg):
     elif cmd == "/status":
         send(chat_id, status())
     elif cmd == "/temp":
-        send(chat_id, f"CPU : {cpu_temp()}")
+        reply(chat_id, f"Le processeur est a {cpu_temp().replace(' C', ' degres')}.")
     elif cmd == "/reset":
         db.delete(f"hist:{chat_id}")
         send(chat_id, "Conversation effacee.")
@@ -293,7 +334,7 @@ def handle(msg):
             send(chat_id, "Utilisation : /parle Bonjour Jessica")
         else:
             send(chat_id, "Le Mac mini parle...")
-            speak(arg, times=3, voice="fr", speed=135)
+            speak(arg, times=3, voice=VOICE_FR, speed=150)
     elif cmd == "/ecran":
         if not arg:
             send(chat_id, "Utilisation : /ecran Coucou Jessica")
@@ -302,17 +343,27 @@ def handle(msg):
             send(chat_id, "Affiche sur l'ecran du Mac mini pendant 1 minute.")
     elif cmd == "/rappel":
         send(chat_id, add_reminder(chat_id, arg))
+    elif cmd == "/voix":
+        if arg.lower() == "off":
+            db.set("voice_off", 1)
+            send(chat_id, "Voix coupee. (/voix on pour la remettre)")
+        elif arg.lower() == "on":
+            db.delete("voice_off")
+            reply(chat_id, "Voix activee. A votre service.")
+        else:
+            send(chat_id, f"Voix : {'coupee' if db.get('voice_off') else 'activee'}. Utilisation : /voix on ou /voix off")
     elif cmd == "/meteo":
-        send(chat_id, meteo(arg) if arg else "Utilisation : /meteo Paris")
+        reply(chat_id, meteo(arg) if arg else "Utilisation : /meteo Paris")
     elif cmd == "/blague":
-        send(chat_id, random.choice(BLAGUES))
+        reply(chat_id, random.choice(BLAGUES))
     elif cmd == "/de":
         faces = int(arg) if arg.isdigit() and 2 <= int(arg) <= 1000 else 6
-        send(chat_id, f"Un de a {faces} faces : {random.randint(1, faces)}")
+        reply(chat_id, f"Un de a {faces} faces : {random.randint(1, faces)}")
     elif cmd == "/pile":
-        send(chat_id, random.choice(["Pile", "Face"]))
+        reply(chat_id, random.choice(["Pile", "Face"]))
     elif cmd == "/heure":
-        send(chat_id, datetime.now().strftime("%d/%m/%Y %H:%M:%S") + " (heure du serveur)")
+        now = datetime.now()
+        reply(chat_id, f"Il est {now:%H} heures {now:%M}, le {now:%d/%m/%Y}.")
     elif cmd.startswith("/"):
         send(chat_id, "Commande inconnue. Tape /aide pour la liste.")
     else:
@@ -330,7 +381,7 @@ def handle(msg):
                           "Les commandes (/meteo, /blague, /dis...) restent illimitees. Reviens demain !")
             return
         tg("sendChatAction", chat_id=chat_id, action="typing")
-        send(chat_id, ask(chat_id, text))
+        reply(chat_id, ask(chat_id, text))
 
 
 def main():
