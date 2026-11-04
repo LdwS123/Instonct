@@ -267,6 +267,39 @@ def tv_up():
 
 
 _tv_cache = {"t": 0.0, "on": False}
+_cc = {"c": None}
+_cc_lock = threading.Lock()
+
+
+def cast_dev():
+    """Connexion Chromecast gardee ouverte (la rouvrir a chaque fois coute du temps)."""
+    with _cc_lock:
+        c = _cc["c"]
+        if c is not None and c.socket_client.is_alive():
+            return c
+        if c is not None:
+            try:
+                c.disconnect()
+            except Exception:
+                pass
+            _cc["c"] = None
+        import pychromecast
+        c = pychromecast.get_chromecast_from_host((CAST_HOST, 8009, None, None, None))
+        c.wait(timeout=6)
+        _cc["c"] = c
+        return c
+
+
+def cast_say(url, mime="audio/wav", max_s=40):
+    """Joue un son sur la tele et attend la fin. Le recepteur reste ouvert : la 2e phrase part en moins d'une seconde."""
+    mc = cast_dev().media_controller
+    mc.play_media(url, mime)
+    mc.block_until_active(timeout=20)
+    t0 = time.time()
+    while mc.status.player_state not in ("PLAYING", "BUFFERING") and time.time() - t0 < 15:
+        time.sleep(0.05)
+    while mc.status.player_state in ("PLAYING", "BUFFERING") and time.time() - t0 < max_s:
+        time.sleep(0.1)
 
 
 def tv_on():
@@ -277,13 +310,7 @@ def tv_on():
     on = False
     if tv_up():
         try:
-            import pychromecast
-            cc = pychromecast.get_chromecast_from_host((CAST_HOST, 8009, None, None, None))
-            try:
-                cc.wait(timeout=5)
-                on = not cc.status.is_stand_by
-            finally:
-                cc.disconnect()
+            on = not cast_dev().status.is_stand_by
         except Exception as e:
             log.info("etat de la tele inconnu : %s", type(e).__name__)
     _tv_cache.update(t=now, on=on)
@@ -980,7 +1007,7 @@ _speak_lock = threading.Lock()                    # une seule voix a la fois
 def set_volume(pct, mac_only=False):
     """Regle le volume (0-100 %) de la tele ou de la carte son du Mac mini. Trop fort, ca peut grésiller."""
     if not mac_only and use_tv():
-        catt("volume", str(pct))
+        cast_dev().set_volume(pct / 100)
         return
     for ctl in ("Master", "Speaker", "Headphone", "PCM"):
         subprocess.run(["amixer", "-c", "0", "-q", "sset", ctl, f"{pct}%", "unmute"],
@@ -991,7 +1018,7 @@ def set_volume(pct, mac_only=False):
 def get_volume():
     """Volume reel de la tele ou de la carte son (lu dans ALSA)."""
     if use_tv():
-        return int(round(float(catt_info().get("volume_level") or 0) * 100))
+        return int(round((cast_dev().status.volume_level or 0) * 100))
     out = subprocess.run(["amixer", "-c", "0", "sget", "Master"], capture_output=True, text=True, timeout=10).stdout
     m = re.search(r"\[(\d+)%\]", out)
     return int(m.group(1)) if m else int(db.get("volume") or 100)
@@ -1058,7 +1085,7 @@ def speak(text, times=1, voice="en-us", speed=125, limit=200):
             tts_wav(text, voice, speed, path)
             for _ in range(times):
                 if tv:
-                    catt("cast", "-b", f"http://{my_ip()}:{CAST_PORT}/{os.path.basename(path)}", timeout=90)
+                    cast_say(f"http://{my_ip()}:{CAST_PORT}/{os.path.basename(path)}")
                 else:
                     subprocess.run(["aplay", "-q", "-D", "plughw:0,0", path], timeout=90)
                 time.sleep(1 if times > 1 else 0)
