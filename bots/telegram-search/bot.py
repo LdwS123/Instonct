@@ -31,7 +31,7 @@ TOKEN = os.environ["TELEGRAM_TOKEN"]
 GEMINI_KEY = os.environ["GEMINI_API_KEY"]
 # Groq (gratuit, tres rapide : reponses en moins d'1 s). Optionnel : si GROQ_API_KEY est dans .env, il passe en premier.
 GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODELS = os.environ.get("GROQ_MODELS", "llama-3.3-70b-versatile,openai/gpt-oss-20b,llama-3.1-8b-instant").split(",")
+GROQ_MODELS = os.environ.get("GROQ_MODELS", "openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b").split(",")
 # Modeles essayes dans l'ordre (gratuits, chacun avec son propre quota ; Gemma en dernier recours).
 MODELS = os.environ.get(
     "GEMINI_MODELS",
