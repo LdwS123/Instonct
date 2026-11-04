@@ -1132,7 +1132,7 @@ def web_probe(b, selector):
     """Que se passe-t-il si on clique ici ? lien simple, bouton, ou envoi de formulaire (avec ce qui partirait)."""
     raw = b.js("(()=>{const e=document.querySelector(" + json.dumps(selector) + ");if(!e)return JSON.stringify({kind:'none'});"
                "const a=e.closest('a[href]');const f=e.closest('form');"
-               "const t=(e.innerText||e.value||e.getAttribute('aria-label')||e.title||'').trim().slice(0,60);"
+               "const t=(e.innerText||e.textContent||e.value||e.getAttribute('aria-label')||e.title||'').trim().slice(0,60);"
                "const fields=f?[...f.elements].filter(x=>x.name&&x.value&&!['password','hidden','submit','button'].includes(x.type)"
                "&&(!['radio','checkbox'].includes(x.type)||x.checked)).map(x=>x.name+'='+x.value.slice(0,50)).slice(0,10):[];"
                "const pw=!!(f&&f.querySelector('input[type=password]'));"
@@ -1311,7 +1311,7 @@ def web_snapshot(url, selector=""):
         b.call("goto", url=url)
         web_here(b)
         if selector:
-            txt = b.js("(document.querySelector(" + json.dumps(selector) + ")||{}).innerText||''")
+            txt = b.js("(()=>{const e=document.querySelector(" + json.dumps(selector) + ");return e?(e.innerText||e.textContent||''):''})()")
         else:
             txt = b.call("markdown", maxBytes=40000)
     return re.sub(r"\s+", " ", txt).strip()
