@@ -311,6 +311,9 @@ def quick_music(text):
     t = norm(text)
     if len(t.split()) > 12:
         return None
+    vol = quick_volume(t)
+    if vol:
+        return vol
     if RE_STOP.fullmatch(t):
         return music_control("stop")
     if RE_PAUSE.fullmatch(t):
@@ -354,7 +357,9 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
     {"name": "music_control", "description": "Arrete, met en pause ou reprend la musique en cours.",
      "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["stop", "pause", "resume"]}}, "required": ["action"]}},
-    {"name": "set_volume", "description": "Regle le volume du Mac mini (0 a 100).",
+    {"name": "change_volume", "description": "Monte (delta positif) ou baisse (delta negatif) le volume du Mac mini, ex. +15 ou -15. A utiliser pour 'monte/baisse le son'.",
+     "parameters": {"type": "object", "properties": {"delta": {"type": "integer"}}, "required": ["delta"]}},
+    {"name": "set_volume", "description": "Regle le volume du Mac mini a une valeur precise (0 a 100).",
      "parameters": {"type": "object", "properties": {"percent": {"type": "integer"}}, "required": ["percent"]}},
     {"name": "show_on_screen", "description": "Affiche un message sur l'ecran du Mac mini pendant 1 minute.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
@@ -378,6 +383,8 @@ def run_tool(chat_id, name, args, links):
             return {"resultat": music_play(str(args.get("query", "")))}
         if name == "music_control":
             return {"resultat": music_control(args.get("action", "stop"))}
+        if name == "change_volume":
+            return {"resultat": change_volume(int(args.get("delta", 15)))}
         if name == "set_volume":
             pct = max(0, min(100, int(args.get("percent", 80))))
             set_volume(pct)
@@ -498,6 +505,43 @@ def set_volume(pct):
         subprocess.run(["amixer", "-c", "0", "-q", "sset", ctl, f"{pct}%", "unmute"],
                        capture_output=True, timeout=10)
     db.set("volume", pct)
+
+
+def get_volume():
+    """Volume reel de la carte son (lu dans ALSA)."""
+    out = subprocess.run(["amixer", "-c", "0", "sget", "Master"], capture_output=True, text=True, timeout=10).stdout
+    m = re.search(r"\[(\d+)%\]", out)
+    return int(m.group(1)) if m else int(db.get("volume") or 100)
+
+
+def change_volume(delta):
+    """Monte ou baisse le volume de `delta` points. Renvoie une phrase."""
+    old = get_volume()
+    new = max(0, min(100, old + delta))
+    if new == old:
+        return f"Le volume est deja au {'maximum' if delta > 0 else 'minimum'} ({old} %)."
+    set_volume(new)
+    return f"Volume : {old} % -> {new} %." + (" C'est le maximum." if new == 100 else "")
+
+
+def quick_volume(t):
+    """Ordres de volume simples (texte normalise) : 'monte le son', 'plus fort', 'volume 50', 'au max'..."""
+    w = t.split()
+    if len(w) > 7 or not re.search(r"\b(son|volume|fort|bas|musique)\b", t) and not re.search(r"\b(monte|baisse|augmente|diminue)\b", t):
+        return None
+    if re.search(r"\b(monte|baisse|augmente|diminue|fort|bas)\b|doucement", t) or re.search(r"\b(volume|son)\b", t):
+        m = re.search(r"\b(\d{1,3})\b", t)
+        if m and re.search(r"\b(volume|son)\b", t) and not re.search(r"\b(monte|baisse|augmente|diminue)\b", t):
+            set_volume(min(100, int(m.group(1))))
+            return f"Volume regle a {min(100, int(m.group(1)))} %."
+        if re.search(r"a fond|au max|maximum", t):
+            return change_volume(100)
+        step = 30 if "beaucoup" in t else 8 if re.search(r"un peu|legerement", t) else 15
+        if re.search(r"\b(baisse|diminue|moins fort|plus bas|doucement)\b|moins fort|plus bas", t):
+            return change_volume(-step)
+        if re.search(r"\b(monte|augmente|plus fort|plus haut)\b|plus fort|plus haut", t):
+            return change_volume(step)
+    return None
 
 
 def tts_wav(text, voice, speed, path, rate=48000):
