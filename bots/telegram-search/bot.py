@@ -49,8 +49,16 @@ HISTORY_TTL = 86400        # 24 h : la conversation reprend meme le lendemain
 
 TG = f"https://api.telegram.org/bot{TOKEN}"
 SYSTEM = (
-    "Tu es Jessica-OS, un majordome numerique dans le style de Jarvis : calme, poli, une pointe d'humour "
-    "elegant. Tes reponses sont aussi lues a voix haute : phrases courtes, 4 phrases maximum sauf si on te "
+    "Tu es l'assistant personnel de l'utilisateur, nomme Steve. Tu t'inspires de la facon de penser de Steve Jobs (sans pretendre etre lui) : "
+    "obsession de la simplicite, exigence, bon gout, franchise. Tu as des opinions et tu les donnes : tu recommandes UNE option claire plutot que dix, "
+    "tu dis ce que tu ferais a sa place et pourquoi en une phrase. Tu vas a l'essentiel, sans flatterie ni blabla. Pas de jargon : "
+    "tu parles comme a un ami intelligent. Tu gardes une pointe d'humour. "
+    "METHODE : 1) comprends ce que l'utilisateur veut VRAIMENT (le but, pas seulement les mots) ; 2) si c'est faisable, fais-le toi-meme avec tes outils au lieu d'expliquer ; "
+    "3) pose au plus UNE question, seulement si tu ne peux vraiment pas avancer ; 4) verifie le resultat avant de dire que c'est fait ; "
+    "5) conclus en une ou deux phrases : ce qui est fait, et la suite utile s'il y en a une. "
+    "Anticipe : si tu vois un probleme, un conflit d'agenda, un oubli ou une meilleure facon, dis-le. N'invente jamais : si tu ne sais pas ou si l'outil a echoue, dis-le franchement. "
+    "CORRECTIONS : quand l'utilisateur te corrige ou te dit qu'une chose t'a deplu, appelle remember avec la regle a retenir (ex : 'Regle : ne jamais ...'), puis excuse-toi en trois mots. "
+    "Tes reponses sont aussi lues a voix haute : phrases courtes, 4 phrases maximum sauf si on te "
     "demande du detail, aucun symbole ni liste. Reponds en francais. "
     "Des resultats de recherche web te sont fournis avec la question : appuie-toi dessus pour les faits "
     "recents ou verifiables, et dis-le honnetement s'ils ne suffisent pas. "
@@ -1226,6 +1234,15 @@ def clean_answer(text):
     return text.replace("<think>", "").strip()
 
 
+HARD = re.compile(r"\b(analys|compar|strateg|plan|expliqu|pourquoi|comment faire|conseil|decid|choisir|choix|resum|redige|ecris|code|script|probleme|bug|organis|budget|idee)", re.I)
+
+
+def effort(question, oral):
+    """Questions simples : reponse eclair. Questions de reflexion : le modele reflechit plus longtemps."""
+    q = norm(question)
+    return "medium" if (not oral and (len(q) > 160 or HARD.search(q))) else "low"
+
+
 def agent_groq(chat_id, question, oral=False, taint=False):
     """Meme agent que ci-dessus, mais sur Groq (tres rapide). Renvoie (texte, liens) ; texte = None si Groq est indisponible."""
     history = []
@@ -1244,8 +1261,8 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 r = NET.post("https://api.groq.com/openai/v1/chat/completions", timeout=20,
                                   headers={"Authorization": f"Bearer {GROQ_KEY}"},
                                   json={"model": model, "messages": messages, "tools": GROQ_TOOLS,
-                                        "temperature": 0.4, "max_tokens": 700,
-                                        **({"reasoning_effort": "low"} if "gpt-oss" in model else {})})
+                                        "temperature": 0.4, "max_tokens": 1200,
+                                        **({"reasoning_effort": effort(question, oral)} if "gpt-oss" in model else {})})
             except requests.RequestException as e:
                 log.warning("groq %s injoignable : %s", model, scrub(e))
                 db.setex(f"cool:{model}", 60, 1)
