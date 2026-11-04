@@ -6,6 +6,8 @@
 - Redis : memoire courte de la conversation, limite de messages, rappels, message d'ecran.
 Secrets lus dans l'environnement (EnvironmentFile du service systemd), jamais dans le code.
 """
+import array
+import base64
 import glob
 import json
 import logging
@@ -16,6 +18,7 @@ import subprocess
 import threading
 import time
 import uuid
+import wave
 from datetime import datetime
 
 import redis
@@ -43,7 +46,8 @@ SYSTEM = (
 )
 
 AIDE = (
-    "Ecris-moi une question : je cherche sur le web et je reponds.\n\n"
+    "Ecris-moi une question : je cherche sur le web et je reponds.\n"
+    "Ou envoie-moi un MESSAGE VOCAL (micro de Telegram) : je t'ecoute et je te reponds a voix haute.\n\n"
     "Commandes (toutes gratuites) :\n"
     "/status : etat du Mac mini\n"
     "/temp : temperature du processeur\n"
@@ -162,6 +166,38 @@ def ask(chat_id, question):
     return answer
 
 
+def ask_voice(chat_id, audio, mime):
+    """Envoie le message vocal a Gemini (il transcrit ET repond en un seul appel)."""
+    key = f"hist:{chat_id}"
+    history = [json.loads(x) for x in db.lrange(key, 0, -1)]
+    instruction = ("Voici un message vocal de l'utilisateur. Reponds-lui. Format strict : une premiere ligne "
+                   "'Q: ' suivie de la transcription exacte de ce qu'il a dit, puis une ligne 'R: ' suivie "
+                   "de ta reponse.")
+    body = {
+        "systemInstruction": {"parts": [{"text": SYSTEM}]},
+        "contents": history + [{"role": "user", "parts": [
+            {"inline_data": {"mime_type": mime, "data": base64.b64encode(audio).decode()}},
+            {"text": instruction}]}],
+    }
+    resp = call_gemini(body)
+    if resp.status_code == 429:
+        return "Limite gratuite Gemini atteinte pour le moment, reessaie dans une minute."
+    if resp.status_code == 503:
+        return "Gemini est sature en ce moment, reessaie dans un instant."
+    resp.raise_for_status()
+    cand = resp.json()["candidates"][0]
+    raw = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])).strip()
+    m = re.search(r"Q:\s*(.*?)\s*\n\s*R:\s*(.*)", raw, re.S)
+    question, answer = (m.group(1), m.group(2).strip()) if m else ("(message vocal)", raw)
+    if not answer:
+        return "Je n'ai pas compris le message vocal."
+    db.rpush(key, json.dumps({"role": "user", "parts": [{"text": question}]}),
+             json.dumps({"role": "model", "parts": [{"text": answer}]}))
+    db.ltrim(key, -2 * HISTORY_TURNS, -1)
+    db.expire(key, HISTORY_TTL)
+    return answer
+
+
 # ---------------------------------------------------------------- commandes gratuites
 def cpu_temp():
     for h in glob.glob("/sys/class/hwmon/hwmon*"):
@@ -197,16 +233,64 @@ VOICE_FR = os.environ.get("VOICE_FR", "mb-fr1")  # voix francaise masculine MBRO
 _speak_lock = threading.Lock()                    # une seule voix a la fois
 
 
+def tts_wav(text, voice, speed, path):
+    """Synthese vocale vers un fichier WAV, normalise au volume maximum SANS saturation.
+    (-a 200 d'espeak saturait le signal : c'est ce qui faisait grésiller la voix.)"""
+    subprocess.run(["espeak-ng", "-v", voice, "-s", str(speed), "-a", "100", "-w", path, text],
+                   check=True, timeout=60)
+    with wave.open(path, "rb") as w:
+        params = w.getparams()
+        samples = array.array("h", w.readframes(w.getnframes()))
+    peak = max((abs(s) for s in samples), default=0)
+    if peak:
+        gain = 30000 / peak          # pic a ~92 % : fort mais propre
+        samples = array.array("h", (int(s * gain) for s in samples))
+    with wave.open(path, "wb") as w:
+        w.setparams(params)
+        w.writeframes(samples.tobytes())
+
+
 def speak(text, times=1, voice="en-us", speed=125, limit=200):
     """Fait parler le Mac mini (espeak-ng -> carte son). Sans effet si rien n'est branche."""
     text = text[:limit]
+    path = f"/tmp/tts-{uuid.uuid4().hex}.wav"
     with _speak_lock:
-        for _ in range(times):
-            tts = subprocess.Popen(["espeak-ng", "-v", voice, "-s", str(speed), "-a", "200", "--stdout", text],
-                                   stdout=subprocess.PIPE)
-            subprocess.run(["aplay", "-q", "-D", "plughw:0,0"], stdin=tts.stdout, timeout=90)
-            tts.wait()
-            time.sleep(1 if times > 1 else 0)
+        try:
+            tts_wav(text, voice, speed, path)
+            for _ in range(times):
+                subprocess.run(["aplay", "-q", "-D", "plughw:0,0", path], timeout=90)
+                time.sleep(1 if times > 1 else 0)
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
+
+def voice_note(text):
+    """Fabrique une note vocale Telegram (OGG/Opus) a partir du texte. Renvoie les octets."""
+    wav = f"/tmp/vn-{uuid.uuid4().hex}.wav"
+    ogg = wav.replace(".wav", ".ogg")
+    try:
+        tts_wav(text, VOICE_FR, 150, wav)
+        subprocess.run(["opusenc", "--quiet", wav, ogg], check=True, timeout=60)
+        with open(ogg, "rb") as f:
+            return f.read()
+    finally:
+        for p in (wav, ogg):
+            if os.path.exists(p):
+                os.remove(p)
+
+
+def send_voice(chat_id, text):
+    """Envoie la reponse en note vocale Telegram (s'entend sur le telephone)."""
+    text = clean_for_speech(text)
+    if not text:
+        return
+    try:
+        audio = voice_note(text)
+        requests.post(f"{TG}/sendVoice", data={"chat_id": chat_id},
+                      files={"voice": ("reponse.ogg", audio, "audio/ogg")}, timeout=60)
+    except Exception as e:
+        log.warning("note vocale impossible : %s", scrub(e))
 
 
 def clean_for_speech(text):
@@ -296,7 +380,8 @@ def handle(msg):
     chat = msg["chat"]
     chat_id = chat["id"]
     text = (msg.get("text") or "").strip()
-    if chat.get("type") != "private" or not text:
+    voice = msg.get("voice") or msg.get("audio")
+    if chat.get("type") != "private" or not (text or voice):
         return
     cmd, _, arg = text.partition(" ")
     cmd = cmd.split("@")[0].lower()
@@ -314,7 +399,9 @@ def handle(msg):
         log.info("message ignore (chat non autorise)")
         return
 
-    if cmd in ("/start", "/aide", "/help"):
+    if voice and not text:
+        handle_voice(chat_id, voice)
+    elif cmd in ("/start", "/aide", "/help"):
         send(chat_id, AIDE)
     elif cmd == "/status":
         send(chat_id, status())
@@ -367,21 +454,47 @@ def handle(msg):
     elif cmd.startswith("/"):
         send(chat_id, "Commande inconnue. Tape /aide pour la liste.")
     else:
-        slot = f"rl:{chat_id}:{int(time.time() // 60)}"
-        if db.incr(slot) == 1:
-            db.expire(slot, 90)
-        if int(db.get(slot)) > MAX_PER_MIN:
-            send(chat_id, "Doucement : 4 questions par minute maximum (limite gratuite de Gemini).")
-            return
-        day = f"rl:day:{datetime.now():%Y-%m-%d}"
-        if db.incr(day) == 1:
-            db.expire(day, 90000)
-        if int(db.get(day)) > MAX_PER_DAY:
-            send(chat_id, f"Tu as utilise tes {MAX_PER_DAY} questions IA gratuites d'aujourd'hui. "
-                          "Les commandes (/meteo, /blague, /dis...) restent illimitees. Reviens demain !")
+        if quota_exceeded(chat_id):
             return
         tg("sendChatAction", chat_id=chat_id, action="typing")
         reply(chat_id, ask(chat_id, text))
+
+
+def quota_exceeded(chat_id):
+    """Applique les limites du palier gratuit Gemini. Previent l'utilisateur et renvoie True si depassees."""
+    slot = f"rl:{chat_id}:{int(time.time() // 60)}"
+    if db.incr(slot) == 1:
+        db.expire(slot, 90)
+    if int(db.get(slot)) > MAX_PER_MIN:
+        send(chat_id, "Doucement : 4 questions par minute maximum (limite gratuite de Gemini).")
+        return True
+    day = f"rl:day:{datetime.now():%Y-%m-%d}"
+    if db.incr(day) == 1:
+        db.expire(day, 90000)
+    if int(db.get(day)) > MAX_PER_DAY:
+        send(chat_id, f"Tu as utilise tes {MAX_PER_DAY} questions IA gratuites d'aujourd'hui. "
+                      "Les commandes (/meteo, /blague, /dis...) restent illimitees. Reviens demain !")
+        return True
+    return False
+
+
+def handle_voice(chat_id, voice):
+    """Message vocal Telegram : Gemini ecoute, comprend et repond ; la reponse revient en texte + note vocale."""
+    if voice.get("duration", 0) > 60:
+        send(chat_id, "Message vocal trop long : 60 secondes maximum.")
+        return
+    if quota_exceeded(chat_id):
+        return
+    tg("sendChatAction", chat_id=chat_id, action="record_voice")
+    info = tg("getFile", file_id=voice["file_id"]).get("result") or {}
+    if not info.get("file_path"):
+        send(chat_id, "Je n'ai pas pu recuperer ton message vocal.")
+        return
+    audio = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{info['file_path']}", timeout=60).content
+    answer = ask_voice(chat_id, audio, voice.get("mime_type") or "audio/ogg")
+    send(chat_id, answer)
+    send_voice(chat_id, answer)   # reponse parlee dans Telegram (s'entend sur le telephone)
+    say_async(answer)             # et sur le Mac mini si la voix est active
 
 
 def main():
