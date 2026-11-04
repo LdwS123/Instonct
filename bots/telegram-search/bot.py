@@ -18,6 +18,7 @@ import random
 import re
 import shlex
 import socket
+import shutil
 import subprocess
 import sys
 import threading
@@ -460,9 +461,14 @@ def music_play(query):
     if not found:
         return "Je n'ai rien trouve sur YouTube pour : " + query
     title, dur, url = found
-    with _speak_lock, _music_lock:            # attend la fin d'une phrase parlee avant de prendre la carte son
-        _music_kill()
-        _music_launch(url, title)
+    def go():                                 # le lancement sur la tele prend ~10 s : on repond tout de suite et on le fait en fond
+        try:
+            with _speak_lock, _music_lock:    # attend la fin d'une phrase parlee avant de prendre la carte son
+                _music_kill()
+                _music_launch(url, title)
+        except Exception as e:
+            log.warning("lancement musique : %s", scrub(e))
+    threading.Thread(target=go, daemon=True).start()
     return f"Je lance : {title} ({dur})"
 
 
@@ -717,8 +723,8 @@ def tool_run_command(chat_id, command, tainted):
 
 
 TOOLS = [{"functionDeclarations": [
-    {"name": "say_aloud", "description": "Fait PARLER A VOIX HAUTE le Mac mini ou la tele (selon la sortie choisie). A utiliser quand l'utilisateur dit 'dis ...', "
-     "'annonce ...', 'fais dire ...' sur le haut-parleur. N'utilise JAMAIS run_command pour parler.",
+    {"name": "say_aloud", "description": "Fait PARLER A VOIX HAUTE le Mac mini ou la tele (selon la sortie choisie). UNIQUEMENT si l'utilisateur demande "
+     "explicitement 'dis ...', 'annonce ...' ou 'fais dire ...' sur le haut-parleur. Jamais pour repondre a une conversation normale. Jamais run_command pour parler.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "mail_list", "description": "Liste les derniers emails de la boite mail de l'utilisateur (lecture seule). Par defaut les non lus. "
      "query = expediteur ou mot du sujet (sans accents). Renvoie id, expediteur, sujet, date.",
@@ -952,7 +958,10 @@ def run_tool(chat_id, name, args, links):
 
 def build_system(oral=False):
     memory = list(db.hvals("memory"))[-80:]
-    return SYSTEM + (ORAL if oral else "") + (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "")
+    now = datetime.now()
+    jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+    quand = f"\n\nNous sommes {jours[now.weekday()]} {now:%d/%m/%Y}, il est {now:%H:%M}. Donne l'heure et la date directement, sans outil."
+    return SYSTEM + quand + (ORAL if oral else "") + (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "")
 
 
 def _short(d):
@@ -1112,6 +1121,11 @@ def cpu_temp():
     return "?"
 
 
+def disk_info():
+    u = shutil.disk_usage("/")
+    return f"{u.free // 2**30} Go libres sur {u.total // 2**30} Go"
+
+
 def status():
     up = float(open("/proc/uptime").read().split()[0])
     load = open("/proc/loadavg").read().split()[:3]
@@ -1127,6 +1141,7 @@ def status():
             f"Charge : {' '.join(load)}\n"
             f"CPU    : {cpu_temp()}\n"
             f"RAM    : {mem['MemAvailable'] // 1024} Mo dispo / {mem['MemTotal'] // 1024} Mo\n"
+            f"Disque : {disk_info()}\n"
             f"Redis  : {rd}\n"
             f"Questions IA aujourd'hui : {db.get(f'rl:day:{datetime.now():%Y-%m-%d}') or 0}/{MAX_PER_DAY}\n"
             f"Services :\n{svc}")
