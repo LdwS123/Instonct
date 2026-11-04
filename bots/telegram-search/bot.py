@@ -54,6 +54,7 @@ AIDE = (
     "/dis <texte> : le Mac mini le dit en anglais, 3 fois\n"
     "/parle <texte> : pareil, avec une voix francaise\n"
     "/voix on|off : le Mac mini lit mes reponses a voix haute (active par defaut)\n"
+    "/volume <0-100> : volume du Mac mini (baisse-le si ca grésille)\n"
     "/ecran <texte> : affiche un message sur l'ecran du Mac mini (1 min)\n"
     "/rappel <minutes> <texte> : je te previens (et le Mac mini parle)\n"
     "/meteo <ville> : meteo du moment\n"
@@ -67,7 +68,7 @@ AIDE = (
 MENU = [
     ("aide", "Liste des commandes"), ("status", "Etat du Mac mini"), ("temp", "Temperature CPU"),
     ("dis", "Le Mac mini parle (anglais)"), ("parle", "Le Mac mini parle (francais)"),
-    ("voix", "Voix du Mac mini : on / off"), ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
+    ("voix", "Voix du Mac mini : on / off"), ("volume", "Volume du Mac mini 0-100"), ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
     ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
     ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
 ]
@@ -242,6 +243,14 @@ def status():
 
 VOICE_FR = os.environ.get("VOICE_FR", "mb-fr1")  # voix francaise masculine MBROLA, plus naturelle
 _speak_lock = threading.Lock()                    # une seule voix a la fois
+
+
+def set_volume(pct):
+    """Regle le volume de la carte son (0-100 %). Un volume trop fort peut saturer l'ampli et faire grésiller."""
+    for ctl in ("Master", "Speaker", "Headphone", "PCM"):
+        subprocess.run(["amixer", "-c", "0", "-q", "sset", ctl, f"{pct}%", "unmute"],
+                       capture_output=True, timeout=10)
+    db.set("volume", pct)
 
 
 def tts_wav(text, voice, speed, path):
@@ -441,6 +450,12 @@ def handle(msg):
             send(chat_id, "Affiche sur l'ecran du Mac mini pendant 1 minute.")
     elif cmd == "/rappel":
         send(chat_id, add_reminder(chat_id, arg))
+    elif cmd == "/volume":
+        if arg.isdigit() and 0 <= int(arg) <= 100:
+            set_volume(int(arg))
+            send(chat_id, f"Volume regle a {arg} %. Essaie /parle Bonjour monsieur pour entendre.")
+        else:
+            send(chat_id, f"Volume actuel : {db.get('volume') or 100} %. Utilisation : /volume 70")
     elif cmd == "/voix":
         if arg.lower() == "off":
             db.set("voice_off", 1)
@@ -514,6 +529,8 @@ def main():
         tg("setMyCommands", commands=[{"command": c, "description": d} for c, d in MENU])
     except Exception as e:
         log.warning("menu des commandes non mis a jour : %s", scrub(e))
+    if db.get("volume"):
+        set_volume(int(db.get("volume")))
     threading.Thread(target=reminder_loop, daemon=True).start()
     offset = None
     while True:
