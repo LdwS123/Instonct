@@ -226,8 +226,28 @@ def music_playing():
     return bool(p and p.poll() is None)
 
 
+HDMI_PCMS = [3, 7, 8]  # peripheriques HDMI de la carte son NVIDIA (dans l'ordre des fichiers eld#)
+
+
+def audio_dev():
+    """Sortie son a utiliser : la tele (HDMI) si elle est reconnue, sinon la sortie du Mac mini.
+    Lu a chaque fois : on peut allumer/eteindre/debrancher la tele sans rien casser."""
+    try:
+        for i, f in enumerate(sorted(glob.glob("/proc/asound/card0/eld#*"))):
+            with open(f) as fh:
+                if re.search(r"^eld_valid\s+1", fh.read(), re.M):
+                    return f"plughw:0,{HDMI_PCMS[min(i, len(HDMI_PCMS) - 1)]}"
+    except OSError:
+        pass
+    return "plughw:0,0"
+
+
+def aplay_cmd(path):
+    return ["aplay", "-q", "-D", audio_dev(), path]
+
+
 def _music_launch(url, title, start=0, paused=False):
-    cmd = ["mpv", "--no-video", "--no-terminal", "--ytdl=no", "--audio-device=alsa/plughw:0,0",
+    cmd = ["mpv", "--no-video", "--no-terminal", "--ytdl=no", f"--audio-device=alsa/{audio_dev()}",
            "--audio-samplerate=48000", f"--input-ipc-server={MUSIC_SOCK}", f"--start={int(start)}"]
     if paused:
         cmd.append("--pause")
@@ -715,7 +735,7 @@ def speak(text, times=1, voice="en-us", speed=125, limit=200):
         try:
             tts_wav(text, voice, speed, path)
             for _ in range(times):
-                subprocess.run(["aplay", "-q", "-D", "plughw:0,0", path], timeout=90)
+                subprocess.run(aplay_cmd(path), timeout=90)
                 time.sleep(1 if times > 1 else 0)
         finally:
             if os.path.exists(path):
@@ -734,7 +754,7 @@ def test_voices():
             path = f"/tmp/tv-{uuid.uuid4().hex}.wav"
             try:
                 tts_wav(f"{num}. {phrase}", voice, 150, path, rate=rate)
-                subprocess.run(["aplay", "-q", "-D", "plughw:0,0", path], timeout=60)
+                subprocess.run(aplay_cmd(path), timeout=60)
             finally:
                 if os.path.exists(path):
                     os.remove(path)
