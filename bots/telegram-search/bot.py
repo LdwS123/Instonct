@@ -232,6 +232,8 @@ HDMI_PCMS = [3, 7, 8]  # peripheriques HDMI de la carte son NVIDIA (dans l'ordre
 def audio_dev():
     """Sortie son a utiliser : la tele (HDMI) si elle est reconnue, sinon la sortie du Mac mini.
     Lu a chaque fois : on peut allumer/eteindre/debrancher la tele sans rien casser."""
+    if os.environ.get("AUDIO_HDMI") != "1":  # le son HDMI ne marche pas avec nouveau sur ce GPU (MCP89) : desactive
+        return "plughw:0,0"
     try:
         for i, f in enumerate(sorted(glob.glob("/proc/asound/card0/eld#*"))):
             with open(f) as fh:
