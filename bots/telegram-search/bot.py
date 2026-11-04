@@ -7,6 +7,8 @@
 Secrets lus dans l'environnement (EnvironmentFile du service systemd), jamais dans le code.
 """
 import base64
+import functools
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import copy
 import glob
 import json
@@ -221,43 +223,98 @@ def _mpv_cmd(*cmd):
     return None
 
 
+# ---------------------------------------------------------------- sortie son : Mac mini ou tele (Chromecast)
+CAST_HOST = os.environ.get("CAST_HOST", "192.168.1.11")   # IP de la tele Sony (Chromecast integre)
+CAST_PORT = int(os.environ.get("CAST_PORT", "8765"))
+CAST_DIR = "/tmp/cast"
+CATT = os.path.join(os.path.dirname(sys.executable), "catt")
+_cast_srv = {"on": False}
+
+
+class _Quiet(SimpleHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+
+def cast_serve():
+    """Petit serveur web local : la tele vient y chercher les fichiers de voix."""
+    if _cast_srv["on"]:
+        return
+    os.makedirs(CAST_DIR, exist_ok=True)
+    srv = ThreadingHTTPServer(("0.0.0.0", CAST_PORT), functools.partial(_Quiet, directory=CAST_DIR))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    _cast_srv["on"] = True
+
+
+def my_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect((CAST_HOST, 9))
+        return s.getsockname()[0]
+    finally:
+        s.close()
+
+
+def tv_up():
+    try:
+        socket.create_connection((CAST_HOST, 8009), timeout=1.5).close()
+        return True
+    except OSError:
+        return False
+
+
+def use_tv():
+    """Le son va sur la tele si l'utilisateur l'a demande ET si elle repond ; sinon sur le Mac mini."""
+    return db.get("sortie") == "tv" and tv_up()
+
+
+def catt(*args, timeout=60):
+    r = subprocess.run([CATT, "-d", CAST_HOST, *args], capture_output=True, text=True, timeout=timeout)
+    return r.stdout.strip()
+
+
+def catt_info():
+    d = {}
+    for line in catt("info", timeout=25).splitlines():
+        k, _, v = line.partition(": ")
+        d[k.strip()] = v.strip()
+    return d
+
+
 def music_playing():
+    if _music.get("tv"):
+        i = catt_info()
+        return i.get("content_id") == _music["url"] and i.get("player_state") in ("PLAYING", "PAUSED", "BUFFERING")
     p = _music["proc"]
     return bool(p and p.poll() is None)
 
 
-HDMI_PCMS = [3, 7, 8]  # peripheriques HDMI de la carte son NVIDIA (dans l'ordre des fichiers eld#)
-
-
-def audio_dev():
-    """Sortie son a utiliser : la tele (HDMI) si elle est reconnue, sinon la sortie du Mac mini.
-    Lu a chaque fois : on peut allumer/eteindre/debrancher la tele sans rien casser."""
-    if os.environ.get("AUDIO_HDMI") != "1":  # le son HDMI ne marche pas avec nouveau sur ce GPU (MCP89) : desactive
-        return "plughw:0,0"
-    try:
-        for i, f in enumerate(sorted(glob.glob("/proc/asound/card0/eld#*"))):
-            with open(f) as fh:
-                if re.search(r"^eld_valid\s+1", fh.read(), re.M):
-                    return f"plughw:0,{HDMI_PCMS[min(i, len(HDMI_PCMS) - 1)]}"
-    except OSError:
-        pass
-    return "plughw:0,0"
-
-
-def aplay_cmd(path):
-    return ["aplay", "-q", "-D", audio_dev(), path]
+def music_pos():
+    if _music.get("tv"):
+        return float(catt_info().get("current_time") or 0)
+    return _mpv_cmd("get_property", "time-pos") or 0
 
 
 def _music_launch(url, title, start=0, paused=False):
-    cmd = ["mpv", "--no-video", "--no-terminal", "--ytdl=no", f"--audio-device=alsa/{audio_dev()}",
+    if use_tv():
+        catt("cast", *(["-t", str(int(start))] if start else []), url)
+        if paused:
+            catt("pause")
+        _music.update(proc=None, tv=True, title=title, url=url, paused=paused)
+        return
+    cmd = ["mpv", "--no-video", "--no-terminal", "--ytdl=no", "--audio-device=alsa/plughw:0,0",
            "--audio-samplerate=48000", f"--input-ipc-server={MUSIC_SOCK}", f"--start={int(start)}"]
     if paused:
         cmd.append("--pause")
     _music.update(proc=subprocess.Popen(cmd + [url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
-                  title=title, url=url, paused=paused)
+                  tv=False, title=title, url=url, paused=paused)
 
 
 def _music_kill():
+    if _music.get("tv"):
+        catt("stop")
+        _music["tv"] = False
+        return
     p = _music["proc"]
     if p and p.poll() is None:
         p.terminate()
@@ -269,20 +326,35 @@ def _music_kill():
 
 
 def music_suspend():
-    """La carte son ne peut servir qu'a un programme a la fois : avant de parler, on arrete la musique
-    en notant ou elle en est. Renvoie l'etat a restaurer (ou None s'il n'y a pas de musique)."""
+    """Avant de parler, on met la musique de cote en notant ou elle en est (la carte son ne sert qu'a un
+    programme a la fois, et une voix envoyee a la tele remplace la musique). Renvoie l'etat a restaurer."""
     with _music_lock:
         if not music_playing():
             return None
-        pos = _mpv_cmd("get_property", "time-pos") or 0
-        state = dict(url=_music["url"], title=_music["title"], start=pos, paused=_music["paused"])
-        _music_kill()
+        state = dict(url=_music["url"], title=_music["title"], start=music_pos(), paused=_music["paused"])
+        if not _music.get("tv"):
+            _music_kill()
         return state
 
 
 def music_restore(state):
     with _music_lock:
         _music_launch(state["url"], state["title"], state["start"], state["paused"])
+
+
+def set_output(mode):
+    """Choisit ou sort le son : 'tv' (Chromecast) ou 'mac' (haut-parleur du Mac mini). La musique suit."""
+    mode = "tv" if mode == "tv" else "mac"
+    if mode == "tv" and not tv_up():
+        return "La tele ne repond pas. Allume-la d'abord."
+    state = music_suspend()
+    if state and _music.get("tv"):
+        with _music_lock:
+            _music_kill()
+    db.set("sortie", mode)
+    if state:
+        music_restore(state)
+    return "C'est fait, le son sort maintenant sur " + ("la tele." if mode == "tv" else "le Mac mini.")
 
 
 def music_find(query):
@@ -316,7 +388,10 @@ def music_control(action):
         if action == "stop":
             _music_kill()
             return "Musique arretee."
-        _mpv_cmd("set_property", "pause", action == "pause")
+        if _music.get("tv"):
+            catt("pause" if action == "pause" else "play")
+        else:
+            _mpv_cmd("set_property", "pause", action == "pause")
         _music["paused"] = action == "pause"
         return "Musique en pause." if action == "pause" else "Musique reprise."
 
@@ -333,12 +408,21 @@ RE_PLAY = re.compile(r"(?:jessica )?(?:peux tu |tu peux )?(?:mets|met|joue|lance
                      r"(?: (?:musique|morceau|chanson|titre|video)\b)?(?: (?:de|du|des|sur youtube)\b| d')? ?(.+)")
 
 
+_OUT = r"(?:jessica )?(?:re)?(?:mets|met|passe|envoie|bascule|joue)(?: moi)?(?: le| la| du| les)?(?: son| musique| audio| voix)?(?: sur| a| dans)(?: la| le| les| l)? ?"
+RE_OUT_TV = re.compile(_OUT + r"(?:tele|television|tv|chromecast)")
+RE_OUT_MAC = re.compile(_OUT + r"(?:mac|mac mini|ordinateur|ordi|haut parleurs?|enceintes?)")
+
+
 def quick_music(text):
     """Raccourci instantane (sans IA) pour les ordres de musique simples. Renvoie la reponse ou None."""
     t = re.sub(r"\b(stp|svp|s il te plait|s il vous plait|merci|please|jessica)\b", "", norm(text))
     t = re.sub(r"\s+", " ", t).strip()
     if len(t.split()) > 12:
         return None
+    if RE_OUT_TV.fullmatch(t):
+        return set_output("tv")
+    if RE_OUT_MAC.fullmatch(t):
+        return set_output("mac")
     vol = quick_volume(t)
     if vol:
         return vol
@@ -384,7 +468,7 @@ def tool_run_command(chat_id, command, tainted):
 TOOLS = [{"functionDeclarations": [
     {"name": "web_search", "description": "Cherche sur le web pour des infos recentes ou verifiables. Inutile pour la conversation simple.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
-    {"name": "play_music", "description": "Joue une musique ou une video YouTube (audio) sur les haut-parleurs du Mac mini. Donne titre et artiste, ou un lien.",
+    {"name": "play_music", "description": "Joue une musique ou une video YouTube (audio) sur la sortie choisie (Mac mini ou tele). Donne titre et artiste, ou un lien.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
     {"name": "music_control", "description": "Arrete, met en pause ou reprend la musique en cours.",
      "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["stop", "pause", "resume"]}}, "required": ["action"]}},
@@ -392,6 +476,8 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"delta": {"type": "integer"}}, "required": ["delta"]}},
     {"name": "set_volume", "description": "Regle le volume du Mac mini a une valeur precise (0 a 100).",
      "parameters": {"type": "object", "properties": {"percent": {"type": "integer"}}, "required": ["percent"]}},
+    {"name": "set_output", "description": "Choisit ou sort le son (voix et musique) : 'tv' = la television Sony (Chromecast), 'mac' = le haut-parleur du Mac mini.",
+     "parameters": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["tv", "mac"]}}, "required": ["mode"]}},
     {"name": "show_on_screen", "description": "Affiche un message sur l'ecran du Mac mini pendant 1 minute.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "set_reminder", "description": "Programme un rappel dans N minutes (Telegram + voix du Mac mini).",
@@ -431,6 +517,8 @@ def run_tool(chat_id, name, args, links):
             return {"resultat": music_play(str(args.get("query", "")))}
         if name == "music_control":
             return {"resultat": music_control(args.get("action", "stop"))}
+        if name == "set_output":
+            return {"resultat": set_output(str(args.get("mode", "mac")))}
         if name == "change_volume":
             return {"resultat": change_volume(int(args.get("delta", 15)))}
         if name == "set_volume":
@@ -666,7 +754,10 @@ _speak_lock = threading.Lock()                    # une seule voix a la fois
 
 
 def set_volume(pct):
-    """Regle le volume de la carte son (0-100 %). Un volume trop fort peut saturer l'ampli et faire grésiller."""
+    """Regle le volume (0-100 %) de la tele ou de la carte son du Mac mini. Trop fort, ca peut grésiller."""
+    if use_tv():
+        catt("volume", str(pct))
+        return
     for ctl in ("Master", "Speaker", "Headphone", "PCM"):
         subprocess.run(["amixer", "-c", "0", "-q", "sset", ctl, f"{pct}%", "unmute"],
                        capture_output=True, timeout=10)
@@ -674,7 +765,9 @@ def set_volume(pct):
 
 
 def get_volume():
-    """Volume reel de la carte son (lu dans ALSA)."""
+    """Volume reel de la tele ou de la carte son (lu dans ALSA)."""
+    if use_tv():
+        return int(round(float(catt_info().get("volume_level") or 0) * 100))
     out = subprocess.run(["amixer", "-c", "0", "sget", "Master"], capture_output=True, text=True, timeout=10).stdout
     m = re.search(r"\[(\d+)%\]", out)
     return int(m.group(1)) if m else int(db.get("volume") or 100)
@@ -729,15 +822,21 @@ def tts_wav(text, voice, speed, path, rate=48000):
 
 
 def speak(text, times=1, voice="en-us", speed=125, limit=200):
-    """Fait parler le Mac mini (espeak-ng -> carte son). Sans effet si rien n'est branche."""
+    """Fait parler le Mac mini (espeak-ng -> carte son) ou la tele (Chromecast), selon la sortie choisie."""
     text = text[:limit]
-    path = f"/tmp/tts-{uuid.uuid4().hex}.wav"
     with _speak_lock:
+        tv = use_tv()
+        if tv:
+            cast_serve()
+        path = f"{CAST_DIR if tv else '/tmp'}/tts-{uuid.uuid4().hex}.wav"
         resume = music_suspend()                       # la carte son ne sert qu'a un programme a la fois
         try:
             tts_wav(text, voice, speed, path)
             for _ in range(times):
-                subprocess.run(aplay_cmd(path), timeout=90)
+                if tv:
+                    catt("cast", "-b", f"http://{my_ip()}:{CAST_PORT}/{os.path.basename(path)}", timeout=90)
+                else:
+                    subprocess.run(["aplay", "-q", "-D", "plughw:0,0", path], timeout=90)
                 time.sleep(1 if times > 1 else 0)
         finally:
             if os.path.exists(path):
@@ -756,7 +855,7 @@ def test_voices():
             path = f"/tmp/tv-{uuid.uuid4().hex}.wav"
             try:
                 tts_wav(f"{num}. {phrase}", voice, 150, path, rate=rate)
-                subprocess.run(aplay_cmd(path), timeout=60)
+                subprocess.run(["aplay", "-q", "-D", "plughw:0,0", path], timeout=60)
             finally:
                 if os.path.exists(path):
                     os.remove(path)
