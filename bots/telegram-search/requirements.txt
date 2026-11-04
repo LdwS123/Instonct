@@ -3,3 +3,4 @@ redis
 ddgs
 catt
 androidtvremote2
+edge-tts
