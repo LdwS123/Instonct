@@ -1,0 +1,42 @@
+# Services du Mac mini (Docker). Dossier de travail sur le Mac mini : ~/services
+# Lancer / mettre a jour :  cd ~/services && sudo docker compose up -d
+services:
+  adguard:                       # bloque les pubs pour tout le reseau (DNS)
+    image: adguard/adguardhome
+    container_name: adguard
+    restart: unless-stopped
+    mem_limit: 250m
+    ports:
+      - "192.168.1.64:53:53/tcp"   # lie a l'adresse du Mac mini : ne gene pas le DNS interne (127.0.0.53)
+      - "192.168.1.64:53:53/udp"
+      - "3000:3000/tcp"            # assistant de premiere installation (disparait ensuite)
+      - "8081:80/tcp"              # page d'administration
+    volumes:
+      - ./data/adguard/work:/opt/adguardhome/work
+      - ./data/adguard/conf:/opt/adguardhome/conf
+
+  uptime-kuma:                   # surveille les services et previent en cas de panne
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    mem_limit: 350m
+    ports:
+      - "3001:3001/tcp"
+    volumes:
+      - ./data/kuma:/app/data
+
+  navidrome:                     # ta musique perso, avec application telephone
+    image: deluan/navidrome:latest
+    container_name: navidrome
+    restart: unless-stopped
+    mem_limit: 300m
+    user: "1000:1000"
+    ports:
+      - "4533:4533/tcp"
+    environment:
+      ND_SCANSCHEDULE: "1h"
+      ND_LOGLEVEL: "info"
+      ND_SESSIONTIMEOUT: "24h"
+    volumes:
+      - ./data/navidrome:/data
+      - /home/ldws123/musique:/music:ro
