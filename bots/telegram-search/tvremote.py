@@ -41,6 +41,10 @@ def _new():
     return AndroidTVRemote("Jessica", CERT, KEY, HOST, loop=_loop)
 
 
+def pairing_pending():
+    return _pair["remote"] is not None
+
+
 def paired():
     return os.path.exists(CERT) and os.path.exists(KEY) and os.path.exists(FLAG)
 

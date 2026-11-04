@@ -1269,6 +1269,9 @@ def handle(msg):
     elif cmd.startswith("/"):
         send(chat_id, "Commande inconnue. Tape /aide pour la liste.")
     else:
+        if tvremote is not None and tvremote.pairing_pending() and re.fullmatch(r"[A-Za-z0-9]{6}", text):
+            finish_pairing(chat_id, text)                 # pendant l'appairage, le code seul suffit (sans /code)
+            return
         if RE_TV_REMOTE.fullmatch(norm(text)):
             send_remote(chat_id)
             return
