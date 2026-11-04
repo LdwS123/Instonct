@@ -32,7 +32,7 @@ GEMINI_KEY = os.environ["GEMINI_API_KEY"]
 # Modeles essayes dans l'ordre (gratuits, chacun avec son propre quota ; Gemma en dernier recours).
 MODELS = os.environ.get(
     "GEMINI_MODELS",
-    "gemini-3.5-flash,gemini-3.6-flash,gemini-flash-lite-latest,gemini-3.5-flash-lite,gemma-4-26b-a4b-it",
+    "gemini-3.5-flash,gemini-3.6-flash,gemini-3-flash-preview,gemini-3.5-flash-lite,gemini-flash-lite-latest",
 ).split(",")
 # Palier gratuit Gemini : ~5 requetes/min et ~20/jour PAR MODELE ; avec 5 modeles en secours on a bien plus.
 MAX_PER_MIN = 8
@@ -153,10 +153,10 @@ def _call_model(model, body):
         # "thinkingLevel: low" : le modele reflechit moins longtemps -> reponse nettement plus rapide
         b["generationConfig"] = {"thinkingConfig": {"thinkingLevel": "low"}}
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    resp = requests.post(url, json=b, headers={"x-goog-api-key": GEMINI_KEY}, timeout=25)
+    resp = requests.post(url, json=b, headers={"x-goog-api-key": GEMINI_KEY}, timeout=15)
     if resp.status_code == 400 and "generationConfig" in b:   # reglage non accepte : on s'en passe
         del b["generationConfig"]
-        resp = requests.post(url, json=b, headers={"x-goog-api-key": GEMINI_KEY}, timeout=25)
+        resp = requests.post(url, json=b, headers={"x-goog-api-key": GEMINI_KEY}, timeout=15)
     return resp
 
 
@@ -176,15 +176,16 @@ def call_gemini(body):
             resp = _call_model(model, body)
         except requests.RequestException as e:
             log.warning("modele %s injoignable : %s", model, scrub(e))
-            db.setex(f"cool:{model}", 60, 1)
+            db.setex(f"cool:{model}", 300, 1)
             continue
         log.info("modele %s : %.1f s (code %s)", model, time.time() - t0, resp.status_code)
         if resp.status_code == 200:
             return resp
         if resp.status_code == 429:
-            db.setex(f"cool:{model}", 600, 1)          # quota atteint : on le laisse reposer 10 min
+            # quota du jour epuise : repos long ; quota de la minute : on reessaie apres ~1 minute
+            db.setex(f"cool:{model}", 3600 if "PerDay" in resp.text else 65, 1)
         elif resp.status_code in (404, 500, 503):
-            db.setex(f"cool:{model}", 120, 1)
+            db.setex(f"cool:{model}", 300, 1)              # modele sature : on l'evite 5 min (pas de 6 s perdues a chaque question)
     if resp is None:                                   # tous les modeles sont au repos : on reessaie le premier
         resp = _call_model(MODELS[0], body)
     return resp
