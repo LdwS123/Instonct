@@ -6,7 +6,6 @@
 - Redis : memoire courte de la conversation, limite de messages, rappels, message d'ecran.
 Secrets lus dans l'environnement (EnvironmentFile du service systemd), jamais dans le code.
 """
-import array
 import base64
 import glob
 import json
@@ -18,7 +17,6 @@ import subprocess
 import threading
 import time
 import uuid
-import wave
 from datetime import datetime
 
 import redis
@@ -253,21 +251,22 @@ def set_volume(pct):
     db.set("volume", pct)
 
 
-def tts_wav(text, voice, speed, path):
-    """Synthese vocale vers un fichier WAV, normalise au volume maximum SANS saturation.
-    (-a 200 d'espeak saturait le signal : c'est ce qui faisait grésiller la voix.)"""
-    subprocess.run(["espeak-ng", "-v", voice, "-s", str(speed), "-a", "40", "-w", path, text],
-                   check=True, timeout=60)
-    with wave.open(path, "rb") as w:
-        params = w.getparams()
-        samples = array.array("h", w.readframes(w.getnframes()))
-    peak = max((abs(s) for s in samples), default=0)
-    if peak:
-        gain = 30000 / peak          # pic a ~92 % : fort mais propre
-        samples = array.array("h", (int(s * gain) for s in samples))
-    with wave.open(path, "wb") as w:
-        w.setparams(params)
-        w.writeframes(samples.tobytes())
+def tts_wav(text, voice, speed, path, rate=48000):
+    """Synthese vocale vers un fichier WAV propre et fort.
+    - espeak est lance doucement (-a 40) : a -a 200 il saturait (grésillement) ;
+    - sox convertit en haute qualite vers 48 kHz (la carte son lit nativement a 48 kHz ; le
+      convertisseur rapide d'ALSA 16->48 kHz ajoute des parasites aigus) puis amplifie sans depasser."""
+    raw = path + ".raw.wav"
+    try:
+        subprocess.run(["espeak-ng", "-v", voice, "-s", str(speed), "-a", "40", "-w", raw, text],
+                       check=True, timeout=60)
+        cmd = ["sox", raw, path]
+        if rate:
+            cmd += ["rate", "-h", str(rate)]
+        subprocess.run(cmd + ["gain", "-n", "-1"], check=True, timeout=60)
+    finally:
+        if os.path.exists(raw):
+            os.remove(raw)
 
 
 def speak(text, times=1, voice="en-us", speed=125, limit=200):
@@ -283,6 +282,22 @@ def speak(text, times=1, voice="en-us", speed=125, limit=200):
         finally:
             if os.path.exists(path):
                 os.remove(path)
+
+
+def test_voices():
+    """Joue la meme phrase de 4 façons numerotees, pour trouver laquelle ne grésille pas."""
+    phrase = "Bonjour monsieur, tous les systemes sont operationnels."
+    variants = [("Un", "fr", 48000), ("Deux", "mb-fr1", None), ("Trois", "mb-fr1", 48000), ("Quatre", "mb-fr4", 48000)]
+    with _speak_lock:
+        for num, voice, rate in variants:
+            path = f"/tmp/tv-{uuid.uuid4().hex}.wav"
+            try:
+                tts_wav(f"{num}. {phrase}", voice, 150, path, rate=rate)
+                subprocess.run(["aplay", "-q", "-D", "plughw:0,0", path], timeout=60)
+            finally:
+                if os.path.exists(path):
+                    os.remove(path)
+            time.sleep(1)
 
 
 def voice_note(text):
@@ -450,6 +465,10 @@ def handle(msg):
             send(chat_id, "Affiche sur l'ecran du Mac mini pendant 1 minute.")
     elif cmd == "/rappel":
         send(chat_id, add_reminder(chat_id, arg))
+    elif cmd == "/testvoix":
+        send(chat_id, "Je joue 4 versions : Un (voix de base), Deux (ancienne), Trois (nouvelle, ma preference), "
+                      "Quatre (voix de femme). Dis-moi laquelle ne grésille pas.")
+        test_voices()
     elif cmd == "/volume":
         if arg.isdigit() and 0 <= int(arg) <= 100:
             set_volume(int(arg))
@@ -523,6 +542,17 @@ def handle_voice(chat_id, voice):
     say_async(answer)             # et sur le Mac mini si la voix est active
 
 
+def safe_handle(msg):
+    try:
+        handle(msg)
+    except Exception as e:  # une erreur sur un message ne doit pas tuer le bot
+        log.error("erreur message : %s", scrub(e))
+        try:
+            send(msg["chat"]["id"], "Oups, une erreur est survenue.")
+        except Exception:
+            pass
+
+
 def main():
     log.info("bot demarre (modele %s)", MODEL)
     try:
@@ -540,15 +570,9 @@ def main():
                 params["offset"] = offset
             for upd in tg("getUpdates", **params).get("result", []):
                 offset = upd["update_id"] + 1
-                try:
-                    if "message" in upd:
-                        handle(upd["message"])
-                except Exception as e:  # une erreur sur un message ne doit pas tuer le bot
-                    log.error("erreur message : %s", scrub(e))
-                    try:
-                        send(upd["message"]["chat"]["id"], "Oups, une erreur est survenue.")
-                    except Exception:
-                        pass
+                if "message" in upd:
+                    # un thread par message : une commande lente (voix, recherche) ne bloque plus les suivantes
+                    threading.Thread(target=safe_handle, args=(upd["message"],), daemon=True).start()
         except Exception as e:
             log.error("erreur reseau : %s", scrub(e))
             time.sleep(5)
