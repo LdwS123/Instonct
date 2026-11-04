@@ -18,7 +18,7 @@ import requests
 
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 GEMINI_KEY = os.environ["GEMINI_API_KEY"]
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 MAX_PER_MIN = 10
 HISTORY_TURNS = 6          # nombre d'echanges gardes en memoire
 HISTORY_TTL = 3600         # 1 h
@@ -27,7 +27,8 @@ TG = f"https://api.telegram.org/bot{TOKEN}"
 GEMINI = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
 SYSTEM = (
     "Tu es un assistant personnel sur Telegram. Reponds en francais, de facon claire et concise. "
-    "Utilise la recherche web des que la question concerne des faits recents ou verifiables. "
+    "Des resultats de recherche web te sont fournis avec la question : appuie-toi dessus pour les faits "
+    "recents ou verifiables, et dis-le honnetement s'ils ne suffisent pas. "
     "Ecris en texte brut, sans markdown (pas d'asterisques ni de dieses)."
 )
 
@@ -53,35 +54,55 @@ def send(chat_id, text):
         tg("sendMessage", chat_id=chat_id, text=text[i:i + 4000], disable_web_page_preview=True)
 
 
+def web_search(query, n=5):
+    """Recherche DuckDuckGo (gratuite, sans cle). Renvoie [] en cas d'echec."""
+    try:
+        from ddgs import DDGS
+        return DDGS().text(query, max_results=n, region="fr-fr") or []
+    except Exception as e:
+        log.warning("recherche web indisponible : %s", scrub(e))
+        return []
+
+
+def call_gemini(body):
+    """Appelle Gemini, avec un nouvel essai si le service est sature (503)."""
+    for attempt in range(3):
+        resp = requests.post(GEMINI, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=60)
+        if resp.status_code != 503:
+            return resp
+        time.sleep(2 * (attempt + 1))
+    return resp
+
+
 def ask(chat_id, question):
     key = f"hist:{chat_id}"
     history = [json.loads(x) for x in db.lrange(key, 0, -1)]
-    contents = history + [{"role": "user", "parts": [{"text": question}]}]
+    results = web_search(question)
+    context = "\n\n".join(f"[{i}] {r.get('title', '')}\n{r.get('body', '')}\n{r.get('href', '')}"
+                          for i, r in enumerate(results, 1)) or "(aucun resultat de recherche)"
+    prompt = f"Question : {question}\n\nResultats de recherche web :\n{context}"
     body = {
         "systemInstruction": {"parts": [{"text": SYSTEM}]},
-        "contents": contents,
-        "tools": [{"google_search": {}}],
+        "contents": history + [{"role": "user", "parts": [{"text": prompt}]}],
     }
-    resp = requests.post(GEMINI, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=60)
+    resp = call_gemini(body)
     if resp.status_code == 429:
         return "Limite gratuite Gemini atteinte pour le moment, reessaie dans une minute."
+    if resp.status_code == 503:
+        return "Gemini est sature en ce moment, reessaie dans un instant."
     resp.raise_for_status()
     cand = resp.json()["candidates"][0]
     answer = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])).strip()
     if not answer:
         return "Je n'ai pas pu formuler de reponse."
-    # memoire courte
-    db.rpush(key, json.dumps(contents[-1]), json.dumps({"role": "model", "parts": [{"text": answer}]}))
+    # memoire courte : on garde la question seule (pas les pages de resultats)
+    db.rpush(key, json.dumps({"role": "user", "parts": [{"text": question}]}),
+             json.dumps({"role": "model", "parts": [{"text": answer}]}))
     db.ltrim(key, -2 * HISTORY_TURNS, -1)
     db.expire(key, HISTORY_TTL)
-    # sources
-    links = []
-    for ch in cand.get("groundingMetadata", {}).get("groundingChunks", []):
-        web = ch.get("web", {})
-        if web.get("uri") and web["uri"] not in links:
-            links.append(web["uri"])
+    links = [r["href"] for r in results if r.get("href")][:3]
     if links:
-        answer += "\n\nSources :\n" + "\n".join(links[:3])
+        answer += "\n\nSources :\n" + "\n".join(links)
     return answer
 
 
