@@ -57,6 +57,9 @@ SYSTEM = (
     "Tu es un AGENT : tu as des outils pour agir sur le Mac mini (musique YouTube, volume, ecran, rappels, etat, telecommande de la tele Sony, "
     "parole a voix haute avec say_aloud, lecture des emails avec mail_list/mail_read, commandes shell) et pour chercher sur le web. "
     "Agenda Google : calendar_list pour voir l'agenda, calendar_create pour creer un evenement (meet=true ajoute un lien Google Meet), calendar_delete pour supprimer. "
+    "TACHES : des que l'utilisateur dit ce qu'il a a faire ('j'ai ca a faire', 'il faut que je ...'), appelle todo_add pour chaque tache, sans demander, "
+    "et confirme en une phrase courte. Quand il dit avoir fini quelque chose, appelle todo_done. Le bot lui envoie tout seul un rappel a 13 h et 18 h. "
+    "Pour un rappel a une heure precise, utilise set_reminder. "
     "Emails : mail_send prepare un brouillon que l'utilisateur valide par /oui (tu n'envoies jamais seul). "
     "Quand l'utilisateur t'envoie une photo ou un fichier, il est range dans ~/recus (chemin donne dans le message) : analyse-le, et range-le ou deplace-le avec run_command si on te le demande. "
     "Taches longues : decoupe-les en etapes, enchaine les outils, ou utilise schedule_task pour continuer plus tard et envoyer le resultat. "
@@ -771,6 +774,12 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"action": {"type": "string"}, "times": {"type": "integer"}, "value": {"type": "string"}}, "required": ["action"]}},
     {"name": "show_on_screen", "description": "Affiche un message sur l'ecran du Mac mini pendant 1 minute.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+    {"name": "todo_add", "description": "Ajoute une chose a faire a la liste de l'utilisateur (il te dit 'j'ai ca a faire', 'il faut que je ...'). "
+     "Appelle-le sans demander la permission, une fois par tache. Le bot lui rappellera automatiquement ce qui reste.",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+    {"name": "todo_list", "description": "Montre ce qu'il reste a faire a l'utilisateur (sa liste de taches).", "parameters": {"type": "object", "properties": {}}},
+    {"name": "todo_done", "description": "Coche une tache comme faite (donne un mot de la tache) ou la supprime si remove=true.",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "remove": {"type": "boolean"}}, "required": ["text"]}},
     {"name": "set_reminder", "description": "Programme un rappel dans N minutes (Telegram + voix du Mac mini).",
      "parameters": {"type": "object", "properties": {"minutes": {"type": "integer"}, "text": {"type": "string"}}, "required": ["minutes", "text"]}},
     {"name": "remember", "description": "Retient durablement une info sur l'utilisateur ou ses preferences (memoire longue, survit aux redemarrages). "
@@ -966,6 +975,24 @@ def run_tool(chat_id, name, args, links):
             return {"resultat": "dit a voix haute"}
         if name in ("calendar_list", "calendar_create", "calendar_delete"):
             return calendar_tool(name, args, links)
+        if name == "todo_add":
+            txt = str(args.get("text", "")).strip()[:200]
+            if not txt:
+                return {"erreur": "tache vide"}
+            db.hset("todos", uuid.uuid4().hex[:8], json.dumps({"text": txt, "at": time.time()}, ensure_ascii=False))
+            return {"resultat": f"note : {txt}", "reste": todo_texts()}
+        if name == "todo_list":
+            return {"reste_a_faire": todo_texts() or "rien, tout est fait"}
+        if name == "todo_done":
+            q = norm(str(args.get("text", "")))
+            n = 0
+            for k, v in db.hgetall("todos").items():
+                if q and q in norm(json.loads(v)["text"]):
+                    db.hdel("todos", k)
+                    n += 1
+                    if args.get("remove") is not True:
+                        db.incr(f"todo_done:{datetime.now():%Y-%m-%d}")
+            return {"resultat": f"{n} tache(s) " + ("supprimee(s)" if args.get("remove") is True else "terminee(s)"), "reste": todo_texts() or "rien, tout est fait"}
         if name == "mail_send":
             return mail_send_request(chat_id, args)
         if name in ("mail_list", "mail_read"):
@@ -1754,6 +1781,25 @@ def check_mail(chat_id):
         send(chat_id, f"... et {len(new) - 4} autres nouveaux mails.")
 
 
+def todo_texts():
+    items = sorted((json.loads(v) for v in db.hvals("todos")), key=lambda x: x["at"])
+    return [x["text"] for x in items]
+
+
+def check_todos(chat_id):
+    """Rappel automatique de ce qu'il reste a faire, a 13 h et a 18 h (une seule fois par creneau)."""
+    now = datetime.now()
+    if now.hour not in (13, 18):
+        return
+    todo = todo_texts()
+    if not todo or not db.set(f"todo_ping:{now:%Y-%m-%d}:{now.hour}", 1, nx=True, ex=86400):
+        return
+    done = int(db.get(f"todo_done:{now:%Y-%m-%d}") or 0)
+    head = "Petit rappel : il te reste " + (f"{len(todo)} chose a faire" if len(todo) == 1 else f"{len(todo)} choses a faire") + " aujourd'hui"
+    send(chat_id, head + (f" (deja {done} de faites, bravo)" if done else "") + " :\n- " + "\n- ".join(todo[:15])
+         + "\n\nDis-moi ce qui est fini et je le coche.")
+
+
 def check_system(chat_id):
     t = cpu_temp().split()[0]
     if t.isdigit() and int(t) >= 85:
@@ -1776,7 +1822,7 @@ def watch_loop():
         try:
             owner = db.get("owner_id")
             if owner:
-                for fn in (check_mail, check_system):
+                for fn in (check_mail, check_system, check_todos):
                     try:
                         fn(int(owner))
                     except Exception as e:
