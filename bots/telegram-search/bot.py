@@ -93,7 +93,8 @@ METEO_CODES = {
 
 db = redis.Redis(decode_responses=True)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-logging.getLogger("urllib3").setLevel(logging.WARNING)
+for noisy in ("urllib3", "primp", "ddgs", "httpx", "httpcore"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 log = logging.getLogger("bot")
 
 
@@ -118,7 +119,7 @@ def web_search(query, n=5):
     """Recherche DuckDuckGo (gratuite, sans cle). Renvoie [] en cas d'echec."""
     try:
         from ddgs import DDGS
-        return DDGS().text(query, max_results=n, region="fr-fr") or []
+        return DDGS(timeout=4).text(query, max_results=n, region="fr-fr") or []
     except Exception as e:
         log.warning("recherche web indisponible : %s", scrub(e))
         return []
@@ -126,18 +127,28 @@ def web_search(query, n=5):
 
 def call_gemini(body):
     """Appelle Gemini, avec un nouvel essai si le service est sature (503)."""
+    # "thinkingLevel: low" : Gemini reflechit moins longtemps -> reponse nettement plus rapide
+    body = {**body, "generationConfig": {"thinkingConfig": {"thinkingLevel": "low"}}}
+    t0 = time.time()
     for attempt in range(3):
         resp = requests.post(GEMINI, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=60)
+        if resp.status_code == 400 and "generationConfig" in body:   # reglage non accepte : on s'en passe
+            body = {k: v for k, v in body.items() if k != "generationConfig"}
+            continue
         if resp.status_code != 503:
-            return resp
+            break
         time.sleep(2 * (attempt + 1))
+    log.info("temps Gemini : %.1f s (code %s)", time.time() - t0, resp.status_code)
     return resp
 
 
 def ask(chat_id, question):
     key = f"hist:{chat_id}"
     history = [json.loads(x) for x in db.lrange(key, 0, -1)]
-    results = web_search(question)
+    t0 = time.time()
+    # pas de recherche web pour les messages tres courts (bonjour, ca va...) : gain de plusieurs secondes
+    results = web_search(question) if len(question.split()) >= 3 else []
+    log.info("temps recherche web : %.1f s", time.time() - t0)
     context = "\n\n".join(f"[{i}] {r.get('title', '')}\n{r.get('body', '')}\n{r.get('href', '')}"
                           for i, r in enumerate(results, 1)) or "(aucun resultat de recherche)"
     prompt = f"Question : {question}\n\nResultats de recherche web :\n{context}"
@@ -236,7 +247,7 @@ _speak_lock = threading.Lock()                    # une seule voix a la fois
 def tts_wav(text, voice, speed, path):
     """Synthese vocale vers un fichier WAV, normalise au volume maximum SANS saturation.
     (-a 200 d'espeak saturait le signal : c'est ce qui faisait grésiller la voix.)"""
-    subprocess.run(["espeak-ng", "-v", voice, "-s", str(speed), "-a", "100", "-w", path, text],
+    subprocess.run(["espeak-ng", "-v", voice, "-s", str(speed), "-a", "40", "-w", path, text],
                    check=True, timeout=60)
     with wave.open(path, "rb") as w:
         params = w.getparams()
