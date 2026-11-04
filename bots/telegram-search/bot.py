@@ -42,7 +42,7 @@ MODELS = os.environ.get(
 # Palier gratuit Gemini : ~5 requetes/min et ~20/jour PAR MODELE ; avec 5 modeles en secours on a bien plus.
 MAX_PER_MIN = 8
 MAX_PER_DAY = 80
-HISTORY_TURNS = 14         # nombre d'echanges gardes en memoire courte
+HISTORY_TURNS = 8          # nombre d'echanges gardes en memoire courte
 HISTORY_TTL = 86400        # 24 h : la conversation reprend meme le lendemain
 
 TG = f"https://api.telegram.org/bot{TOKEN}"
@@ -139,8 +139,18 @@ def scrub(e):
     return str(e).replace(TOKEN, "***").replace(GEMINI_KEY, "***")
 
 
+def _session():
+    from requests.adapters import HTTPAdapter
+    sess = requests.Session()
+    sess.mount("https://", HTTPAdapter(pool_connections=4, pool_maxsize=24))
+    return sess
+
+
+NET = _session()        # connexions gardees ouvertes vers Telegram et Groq : plus de poignee de main a chaque appel
+
+
 def tg(method, **params):
-    resp = requests.post(f"{TG}/{method}", json=params, timeout=70)
+    resp = NET.post(f"{TG}/{method}", json=params, timeout=70)
     return resp.json()
 
 
@@ -945,7 +955,17 @@ def build_system(oral=False):
     return SYSTEM + (ORAL if oral else "") + (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "")
 
 
-GROQ_TOOLS = [{"type": "function", "function": {"parameters": {"type": "object", "properties": {}}, **d}}
+def _short(d):
+    if d["name"] in ("tv_remote", "run_command", "schedule_task"):
+        return d
+    desc = d["description"]
+    if len(desc) > 140:
+        first = re.split(r"(?<=[.!?])\s", desc)[0]
+        desc = first if 40 <= len(first) <= 200 else desc[:140]
+    return {**d, "description": desc}
+
+
+GROQ_TOOLS = [{"type": "function", "function": {"parameters": {"type": "object", "properties": {}}, **_short(d)}}
               for d in TOOLS[0]["functionDeclarations"]]
 
 
@@ -954,7 +974,7 @@ def agent_groq(chat_id, question, oral=False):
     history = []
     for x in db.lrange(f"hist:{chat_id}", 0, -1):
         m = json.loads(x)
-        history.append({"role": "assistant" if m["role"] == "model" else "user", "content": m["parts"][0].get("text", "")})
+        history.append({"role": "assistant" if m["role"] == "model" else "user", "content": m["parts"][0].get("text", "")[:500]})
     messages = [{"role": "system", "content": build_system(oral)}] + history + [{"role": "user", "content": question}]
     links = []
     for _ in range(10):
@@ -964,10 +984,11 @@ def agent_groq(chat_id, question, oral=False):
                 continue
             t0 = time.time()
             try:
-                r = requests.post("https://api.groq.com/openai/v1/chat/completions", timeout=20,
+                r = NET.post("https://api.groq.com/openai/v1/chat/completions", timeout=20,
                                   headers={"Authorization": f"Bearer {GROQ_KEY}"},
                                   json={"model": model, "messages": messages, "tools": GROQ_TOOLS,
-                                        "temperature": 0.4, "max_tokens": 700})
+                                        "temperature": 0.4, "max_tokens": 700,
+                                        **({"reasoning_effort": "low"} if "gpt-oss" in model else {})})
             except requests.RequestException as e:
                 log.warning("groq %s injoignable : %s", model, scrub(e))
                 db.setex(f"cool:{model}", 60, 1)
