@@ -107,6 +107,7 @@ AIDE = (
     "/telecommande : telecommande de la tele avec des boutons (la premiere fois : /pairer puis /code)\n"
     "/sortie auto|tele|mac : ou sort le son (auto = tele si allumee, sinon Mac mini)\n"
     "/oui, /non : confirmer ou annuler (sinon, appuie sur les boutons)\n"
+    "/google : reconnecter ton agenda Google (a faire une fois par semaine)\n"
     "/pile : pile ou face\n"
     "/heure : date et heure du serveur\n"
     "/reset : oublier la conversation"
@@ -853,8 +854,9 @@ TOOLS = [{"functionDeclarations": [
     {"name": "cancel_tasks", "description": "Annule les taches programmees dont l'instruction contient ce texte (ou toutes si vide).",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}},
     {"name": "get_status", "description": "Etat du Mac mini : processeur, memoire, disque, temperature."},
-    {"name": "fetch_url", "description": "Lit le texte d'une page web (lien donne par l'utilisateur ou trouve en recherche).",
-     "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
+    {"name": "fetch_url", "description": "Ouvre une page web dans un vrai navigateur leger (execute le JavaScript) et renvoie son texte, avec les liens en markdown. "
+     "start = decalage en caracteres pour lire la suite d'une longue page.",
+     "parameters": {"type": "object", "properties": {"url": {"type": "string"}, "start": {"type": "integer"}}, "required": ["url"]}},
     {"name": "run_command", "description": "Execute N'IMPORTE QUELLE commande shell sur le Mac mini (Ubuntu, utilisateur ldws123, sudo sans mot de passe). "
      "C'est ton outil universel : fichiers, installation de paquets, services, reseau, scripts Python, processus... "
      "Enchaine plusieurs commandes pour accomplir une tache. Seules les commandes destructrices demandent une confirmation /oui.",
@@ -988,10 +990,60 @@ def mail_send_now(p):
         s.send_message(m)
 
 
+LIGHTPANDA = os.path.expanduser("~/lightpanda/lightpanda")
+
+
+def url_ok(url):
+    """Seulement des sites publics en http(s) : pas le reseau de la maison, ni le Mac mini lui-meme."""
+    import ipaddress
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        return False
+    try:
+        return all(ipaddress.ip_address(a[4][0]).is_global for a in socket.getaddrinfo(u.hostname, None))
+    except (OSError, ValueError):
+        return False
+
+
+def browse(url):
+    """Lit une page avec le navigateur leger Lightpanda (comprend le JavaScript, ~25 Mo de memoire, lance a la demande)."""
+    if os.path.exists(LIGHTPANDA):
+        try:
+            r = subprocess.run([LIGHTPANDA, "fetch", "--dump", "markdown", "--dump-max-bytes", "60000", url],
+                               capture_output=True, text=True, timeout=45)
+            if r.stdout.strip():
+                return r.stdout.strip()
+        except subprocess.TimeoutExpired:
+            log.info("lightpanda trop long sur une page")
+    html = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"}).text          # secours : lecture simple
+    text = re.sub(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html, flags=re.S)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def google_prompt(chat_id, why):
+    import gcal
+    tg("sendMessage", chat_id=chat_id, disable_web_page_preview=True,
+       text=why + "\n\n1. Appuie sur le bouton, choisis ton compte et accepte.\n"
+                  "2. Une page d'erreur 'localhost' s'affiche : c'est normal.\n"
+                  "3. Copie l'adresse de cette page (barre du haut) et colle-la ici, dans la conversation.",
+       reply_markup={"inline_keyboard": [[{"text": "\U0001F511 Autoriser l'agenda", "url": gcal.auth_url()}]]})
+
+
+def google_finish(chat_id, url):
+    import gcal
+    try:
+        gcal.exchange(url)
+        db.delete("alert:google")
+        send(chat_id, "C'est bon, ton agenda est reconnecte pour 7 jours.")
+    except Exception as e:
+        send(chat_id, "Ca n'a pas marche : " + scrub(e)[:150] + "\nEnvoie /google pour recommencer.")
+
+
 def calendar_tool(name, args, links):
     import gcal
     if not gcal.connected():
-        return {"erreur": "agenda Google pas encore connecte (il faut lancer scripts/google-auth.py)"}
+        return {"erreur": "agenda Google pas encore connecte : dis a l'utilisateur d'envoyer /google"}
     try:
         if name == "calendar_list":
             return {"evenements": gcal.list_events(int(args.get("days", 1) or 1), args.get("start") or None) or "aucun evenement"}
@@ -1125,10 +1177,14 @@ def run_tool(chat_id, name, args, links):
                     n += db.zrem("tasks", r)
             return {"resultat": f"{n} tache(s) annulee(s)"}
         if name == "fetch_url":
-            html = requests.get(str(args.get("url", "")), timeout=15, headers={"User-Agent": "Mozilla/5.0"}).text
-            text = re.sub(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html, flags=re.S)
-            links.append(str(args.get("url", "")))
-            return {"texte": re.sub(r"\s+", " ", text).strip()[:4000]}
+            url = str(args.get("url", ""))
+            if not url_ok(url):
+                return {"erreur": "adresse refusee (il faut un site public en http ou https)"}
+            text = browse(url)
+            links.append(url)
+            start = max(0, int(args.get("start", 0) or 0))
+            return {"texte": text[start:start + 5000], "longueur_totale": len(text),
+                    "suite": f"relance avec start={start + 5000} pour lire la suite" if len(text) > start + 5000 else "fin de la page"}
         if name == "run_command":
             return tool_run_command(chat_id, str(args.get("command", "")), tainted=bool(links))
     except Exception as e:
@@ -1661,6 +1717,13 @@ def handle(msg):
     elif cmd == "/sortie":
         mode = {"tele": "tv", "tv": "tv", "mac": "mac", "auto": "auto"}.get(norm(arg))
         send(chat_id, set_output(mode) if mode else f"Sortie du son : {db.get('sortie') or 'auto'}. Utilisation : /sortie auto, /sortie tele ou /sortie mac")
+    elif cmd == "/google":
+        if arg.startswith("http"):
+            google_finish(chat_id, arg)
+        else:
+            google_prompt(chat_id, "Reconnexion de ton agenda Google.")
+    elif text.startswith("http://localhost:8085") and "code=" in text:
+        google_finish(chat_id, text.split()[0])
     elif cmd == "/oui":
         confirm_yes(chat_id)
     elif cmd == "/non":
@@ -1871,6 +1934,19 @@ def check_todos(chat_id):
          + "\n\nDis-moi ce qui est fini et je le coche.")
 
 
+def check_google(chat_id):
+    """Tant que l'app Google est en 'Testing', l'acces expire au bout de 7 jours : on previent a l'avance."""
+    import gcal
+    if not gcal.connected():
+        return
+    age = gcal.token_age_days() or 0
+    if not gcal.token_ok():
+        if db.set("alert:google", 1, nx=True, ex=12 * 3600):
+            google_prompt(chat_id, "Ton acces a l'agenda Google a expire.")
+    elif age >= 6 and db.set("alert:google_soon", 1, nx=True, ex=20 * 3600):
+        google_prompt(chat_id, "Ton acces a l'agenda Google expire bientot (apres 7 jours). Tu peux le renouveler maintenant, ca prend 20 secondes.")
+
+
 def check_system(chat_id):
     t = cpu_temp().split()[0]
     if t.isdigit() and int(t) >= 85:
@@ -1893,7 +1969,7 @@ def watch_loop():
         try:
             owner = db.get("owner_id")
             if owner:
-                for fn in (check_mail, check_system, check_todos):
+                for fn in (check_mail, check_system, check_todos, check_google):
                     try:
                         fn(int(owner))
                     except Exception as e:

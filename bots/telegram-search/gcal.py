@@ -31,7 +31,7 @@ def _token():
         "client_id": cfg["client_id"], "client_secret": cfg["client_secret"],
         "refresh_token": cfg["refresh_token"], "grant_type": "refresh_token"}, timeout=20)
     if r.status_code != 200:
-        raise RuntimeError("autorisation Google refusee ou expiree : relancer scripts/google-auth.py")
+        raise RuntimeError("autorisation Google refusee ou expiree : dire a l'utilisateur d'envoyer /google au bot")
     d = r.json()
     _cache.update(tok=d["access_token"], exp=time.time() + int(d.get("expires_in", 3600)))
     return _cache["tok"]
@@ -105,3 +105,63 @@ def create_event(title, start, duration_min=60, invites=None, meet=False, descri
 def delete_event(event_id):
     _call("DELETE", f"{API}/{re.sub(r'[^A-Za-z0-9_]', '', event_id)}", params={"sendUpdates": "none"})
     return True
+
+
+# ---- re-autorisation depuis Telegram (utile tant que l'app Google reste en mode "Testing" : l'acces expire apres 7 jours)
+REDIRECT = "http://localhost:8085"
+SCOPE = "https://www.googleapis.com/auth/calendar.events"
+
+
+def _client():
+    for f in (TOKEN_FILE, os.path.expanduser("~/bots/google_client.json")):
+        try:
+            d = json.load(open(f))
+            if d.get("client_id") and d.get("client_secret"):
+                return d
+        except (OSError, ValueError):
+            continue
+    raise RuntimeError("identifiant Google introuvable")
+
+
+def auth_url():
+    from urllib.parse import urlencode
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode({
+        "client_id": _client()["client_id"], "redirect_uri": REDIRECT, "response_type": "code", "scope": SCOPE,
+        "access_type": "offline", "prompt": "consent"})
+
+
+def exchange(url):
+    """Recoit l'adresse (http://localhost:8085/?code=...) ou arrive le navigateur, et enregistre le nouvel acces."""
+    from urllib.parse import parse_qs, urlparse
+    code = parse_qs(urlparse(url.strip()).query).get("code", [""])[0]
+    if not code:
+        raise RuntimeError("pas de code dans cette adresse")
+    cfg = _client()
+    r = requests.post("https://oauth2.googleapis.com/token", data={
+        "code": code, "client_id": cfg["client_id"], "client_secret": cfg["client_secret"],
+        "redirect_uri": REDIRECT, "grant_type": "authorization_code"}, timeout=20)
+    d = r.json()
+    if "refresh_token" not in d:
+        raise RuntimeError("Google a refuse le code (il est peut-etre deja utilise ou trop ancien)")
+    tmp = TOKEN_FILE + ".new"
+    with open(tmp, "w") as f:
+        json.dump({"client_id": cfg["client_id"], "client_secret": cfg["client_secret"], "refresh_token": d["refresh_token"]}, f)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, TOKEN_FILE)
+    _cache.update(tok=None, exp=0.0)
+    return True
+
+
+def token_age_days():
+    try:
+        return (time.time() - os.path.getmtime(TOKEN_FILE)) / 86400
+    except OSError:
+        return None
+
+
+def token_ok():
+    try:
+        _token()
+        return True
+    except Exception:
+        return False
