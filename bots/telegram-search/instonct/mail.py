@@ -7,6 +7,7 @@ import unicodedata
 import uuid
 from datetime import datetime
 from datetime import timedelta
+import time
 
 from . import mailtriage
 from .core import db, log, scrub
@@ -50,7 +51,7 @@ def _mail_dec(v):
         return str(v or "")
 
 
-_HDRS = "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE LIST-UNSUBSCRIBE PRECEDENCE)])"
+_HDRS = "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE LIST-UNSUBSCRIBE PRECEDENCE MESSAGE-ID)])"
 
 
 def _bulk(h):
@@ -316,6 +317,123 @@ def _mail_act(c, gmail, uid, action):
         c.uid("store", uid, "+FLAGS", "(\\Deleted)")
 
 
+TRASH_LOG = "mail_trash_log"
+TRASH_DAYS = 30                                        # Gmail empties its trash after about 30 days
+
+
+def _log_trash(n, message_id, de, sujet):
+    """Remembers what the bot put in the trash, so it can be put back."""
+    if message_id:
+        db.lpush(TRASH_LOG, json.dumps({"n": n, "mid": message_id, "de": de[:80], "sujet": sujet[:100], "at": time.time()}, ensure_ascii=False))
+        db.ltrim(TRASH_LOG, 0, 199)
+
+
+def _trash_mail(c, gmail, uid, n):
+    """Puts one mail in the trash and logs it."""
+    import email
+    typ, d = c.uid("fetch", uid, _HDRS)
+    h = email.message_from_bytes(d[0][1]) if typ == "OK" and d and d[0] and isinstance(d[0], tuple) else {}
+    _mail_act(c, gmail, uid, "delete")
+    if h:
+        _log_trash(n, (h["Message-ID"] or "").strip(), _mail_dec(h["From"]), _mail_dec(h["Subject"]))
+
+
+def mail_undo(query="", limit=10):
+    """Puts mails the bot trashed back in the inbox. query = a word of the sender or subject; without it, the last batch. Never deletes anything."""
+    now = time.time()
+    entries = []
+    for raw in db.lrange(TRASH_LOG, 0, -1):
+        e = json.loads(raw)
+        if now - e["at"] < TRASH_DAYS * 86400:
+            entries.append((raw, e))
+    q = _strip_accents(query).lower().strip()
+    if q:
+        entries = [x for x in entries if q in _strip_accents(x[1]["de"] + " " + x[1]["sujet"]).lower()]
+    elif entries:
+        newest = entries[0][1]["at"]
+        entries = [x for x in entries if newest - x[1]["at"] < 180]    # same batch: trashed within three minutes of the last one
+    entries = entries[:max(1, min(int(limit or 10), 30))]
+    done, missing, errs = [], [], []
+    for raw, e in entries:
+        try:
+            c = _mail_open(e["n"], "INBOX", readonly=False)
+            try:
+                trash = _special_folder(c, "trash")
+                if not trash:
+                    raise RuntimeError("corbeille introuvable")
+                if hasattr(c, "select"):
+                    c.select(_imap_q(trash), readonly=False)
+                typ, data = c.uid("search", None, "HEADER", "Message-ID", _imap_q(e["mid"]))
+                uids = data[0].split() if typ == "OK" and data and data[0] else []
+                if not uids:
+                    missing.append(e["sujet"])
+                    db.lrem(TRASH_LOG, 1, raw)
+                    continue
+                uid = uids[-1].decode() if isinstance(uids[-1], bytes) else uids[-1]
+                try:
+                    typ, _ = c.uid("MOVE", uid, "INBOX")
+                except Exception:
+                    typ = "NO"
+                if typ != "OK":                        # server without MOVE: a copy is enough, the trash is left alone
+                    typ, _ = c.uid("COPY", uid, "INBOX")
+                if typ != "OK":
+                    raise RuntimeError("deplacement refuse")
+                done.append(f"{e['de'].split('<')[0].strip()[:30]} : {e['sujet'][:55]}")
+                db.lrem(TRASH_LOG, 1, raw)
+            finally:
+                try:
+                    c.logout()
+                except Exception:
+                    pass
+        except Exception as ex:
+            errs.append(scrub(ex)[:100])
+    res = {"remis_dans_la_boite": len(done), "mails": done or "aucun mail recent de ma part a remettre"}
+    if missing:
+        res["plus_dans_la_corbeille"] = missing[:5]
+    if errs:
+        res["erreurs"] = errs[:3]
+    return res
+
+
+def _strip_accents(s):
+    return "".join(ch for ch in unicodedata.normalize("NFD", str(s or "")) if unicodedata.category(ch) != "Mn")
+
+
+def important_among(ids):
+    """The important mails among these ids (answers to applications, real people, invoices...). A mail that cannot be read counts as important."""
+    import email
+    groups = {}
+    for mid in [str(i) for i in (ids or [])][:30]:
+        n, uid, folder = _parse_mid(mid)
+        if uid:
+            groups.setdefault((n, folder), []).append((mid, uid))
+    out = []
+    for (n, folder), items in groups.items():
+        try:
+            c = _mail_open(n, folder, readonly=True)
+        except Exception as e:
+            log.warning("tri avant suppression : %s", scrub(e))
+            out += [{"id": mid, "de": "?", "sujet": "?", "type": "illisible"} for mid, _ in items]
+            continue
+        try:
+            for mid, uid in items:
+                try:
+                    typ, d = c.uid("fetch", uid, _HDRS)
+                    h = email.message_from_bytes(d[0][1])
+                    de, sujet = _mail_dec(h["From"])[:80], _mail_dec(h["Subject"])[:100]
+                    t = _tri(de, sujet, h)
+                    if t["niveau"] != "pub":
+                        out.append({"id": mid, "de": de, "sujet": sujet, "type": t["type"]})
+                except Exception:
+                    out.append({"id": mid, "de": "?", "sujet": "?", "type": "illisible"})
+        finally:
+            try:
+                c.logout()
+            except Exception:
+                pass
+    return out
+
+
 def mail_manage(ids, action):
     """Supprime (corbeille), archive, marque lu / non lu, spam, etoile : jusqu'a 30 mails d'un coup."""
     if action not in ("delete", "archive", "read", "unread", "spam", "star", "unstar"):
@@ -337,7 +455,10 @@ def mail_manage(ids, action):
             try:
                 for uid in uids:
                     try:
-                        _mail_act(c, gmail, uid, action)
+                        if action == "delete":
+                            _trash_mail(c, gmail, uid, n)
+                        else:
+                            _mail_act(c, gmail, uid, action)
                         done += 1
                     except Exception as e:
                         errs.append(f"{uid} : {scrub(e)[:80]}")
@@ -352,7 +473,7 @@ def mail_manage(ids, action):
             errs.append(f"boite {n} : {scrub(e)[:100]}")
     res = {"fait": done, "action": action}
     if action == "delete":
-        res["note"] = "mis a la corbeille : recuperable pendant ~30 jours"
+        res["note"] = "mis a la corbeille, recuperable avec mail_undo"
     if errs:
         res["erreurs"] = errs[:5]
     return res
@@ -387,7 +508,7 @@ def mail_clean(days=30, limit=100, dry_run=False):
                 if not dry_run:
                     for u in victims:
                         try:
-                            _mail_act(c, gmail, u, "delete")
+                            _trash_mail(c, gmail, u, acc["n"])
                         except Exception as e:
                             errs.append(scrub(e)[:80])
                             victims = victims[:-1]

@@ -11,7 +11,7 @@ from datetime import datetime
 from . import plus
 from .optional import tvremote
 from .core import db, log, norm, scrub
-from . import catalog, commands, google, life, llm, mail, media, monitor, music, pagewatch, reminders, sound, system_tools, television, web
+from . import catalog, commands, google, guard, life, llm, mail, media, monitor, music, pagewatch, reminders, sound, system_tools, television, web
 
 def run_tool(chat_id, name, args, links):
     log.info("outil %s %s", name, json.dumps(args, ensure_ascii=False)[:100])
@@ -49,6 +49,8 @@ def run_tool(chat_id, name, args, links):
             threading.Thread(target=_say, daemon=True).start()
             return {"resultat": "dit a voix haute"}
         if name in ("calendar_list", "calendar_create", "calendar_delete"):
+            if name == "calendar_delete" and (no := guard.refusal("calendar_delete")):
+                return no
             return google.calendar_tool(name, args, links)
         if name == "todo_add":
             txt = str(args.get("text", "")).strip()[:200]
@@ -80,9 +82,24 @@ def run_tool(chat_id, name, args, links):
             return mail.mail_reply_request(chat_id, args)
         if name == "mail_manage":
             ids = args.get("ids") or []
-            return mail.mail_manage(ids if isinstance(ids, list) else [ids], str(args.get("action", "")))
+            ids = ids if isinstance(ids, list) else [ids]
+            action = str(args.get("action", ""))
+            if action in guard.MAIL_ACTIONS and (no := guard.refusal(action)):
+                return no
+            if action in ("delete", "spam"):
+                risky = guard.unnamed_important(mail.important_among(ids), action)
+                if risky:
+                    return {"erreur": "refuse : ces mails sont importants et l'utilisateur ne les a pas designes. Montre-les-lui et demande s'il veut vraiment.", "mails_importants": risky[:10]}
+            return mail.mail_manage(ids, action)
+        if name == "mail_undo":
+            return mail.mail_undo(str(args.get("query", "")), args.get("limit") or 10)
         if name == "mail_clean":
-            if args.get("genre") == "refus" or "refus" in norm(str(args.get("genre", ""))):
+            refus = args.get("genre") == "refus" or "refus" in norm(str(args.get("genre", "")))
+            if args.get("dry_run") is not True:
+                no = guard.refusal("refus", extra_word="refus") if refus else guard.refusal("clean")
+                if no:
+                    return no
+            if refus:
                 return mail.mail_refus(args.get("days") or 365, args.get("limit") or 150, args.get("dry_run") is True)
             return mail.mail_clean(args.get("days", 30), args.get("limit", 100), args.get("dry_run") is True)
         if name in ("mail_list", "mail_read", "mail_search"):
@@ -138,6 +155,8 @@ def run_tool(chat_id, name, args, links):
             db.hset("memory", uuid.uuid4().hex[:8], str(args.get("fact", ""))[:300])
             return {"resultat": "retenu"}
         if name == "forget":
+            if no := guard.refusal("forget"):
+                return no
             n = 0
             for k, v in db.hgetall("memory").items():
                 if str(args.get("text", "")).lower() in v.lower():
@@ -166,6 +185,8 @@ def run_tool(chat_id, name, args, links):
             return {"taches": [f"{json.loads(r)['prompt']} (repete toutes les {json.loads(r)['repeat']} min)" if json.loads(r)["repeat"]
                                else json.loads(r)["prompt"] for r in db.zrange("tasks", 0, -1)] or "aucune"}
         if name == "cancel_tasks":
+            if no := guard.refusal("cancel_tasks"):
+                return no
             n = 0
             for r in db.zrange("tasks", 0, -1):
                 if str(args.get("text", "")).lower() in json.loads(r)["prompt"].lower():

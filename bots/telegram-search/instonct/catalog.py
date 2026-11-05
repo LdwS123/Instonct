@@ -39,9 +39,12 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"to": {"type": "array", "items": {"type": "string"}}, "subject": {"type": "string"},
                     "body": {"type": "string"}, "account": {"type": "integer"}}, "required": ["to", "subject", "body"]}},
     {"name": "mail_manage", "description": "Agit sur des emails (ids donnes par mail_list / mail_search) : action = delete (corbeille, recuperable), archive, read, unread, spam, star. "
-     "Jusqu'a 30 mails a la fois. Fais-le directement quand l'utilisateur le demande, sans redemander.",
+     "Jusqu'a 30 mails a la fois. SEULEMENT si l'utilisateur le demande dans son message : regarder, lire ou verifier ses mails n'est JAMAIS une raison d'agir dessus.",
      "parameters": {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "string"}},
                     "action": {"type": "string", "enum": ["delete", "archive", "read", "unread", "spam", "star"]}}, "required": ["ids", "action"]}},
+    {"name": "mail_undo", "description": "REMET dans la boite de reception les mails que tu as mis a la corbeille. Sans query : le dernier lot. query = un mot de l'expediteur ou du sujet. "
+     "A utiliser pour 'annule', 'remets ce mail', 'restaure'.",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}}},
     {"name": "mail_clean", "description": "NETTOIE la boite de reception : met a la corbeille toutes les pubs et newsletters (le tri protege les mails importants). "
      "days = jusqu'a combien de jours en arriere (30 par defaut), dry_run=true pour seulement compter sans rien supprimer. A utiliser pour 'fais le menage', 'supprime les pubs'. "
      "genre='refus' : trouve (en LISANT les mails, dans tous les dossiers) et supprime les REFUS de candidature, jamais les entretiens ni acceptations (days=365 par defaut). "
@@ -244,7 +247,7 @@ TOOL_GROUPS = [
     (r"musique|son\b|volume|joue|mets|chanson|pause|reprend|stop|\bdis\b|parle|annonce|ecran|titre|artiste|playlist|youtube|sortie|haut.?parleur|ecoute",
      {"play_music", "music_control", "change_volume", "set_volume", "set_output", "say_aloud", "show_on_screen"}),
     (r"tele|chaine|netflix|youtube|prime|disney|hdmi|allume|eteins|remote|source|sony|telecommande", {"tv_remote", "show_remote"}),
-    (r"mail|ecri|envoi|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|refus|pub\\b|pubs", {"mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply"}),
+    (r"mail|ecri|envoi|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|refus|restaure|remets|pub\\b|pubs", {"mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply", "mail_undo"}),
     (r"agenda|calendrier|rendez|rdv|reunion|meet|evenement|planning|dispo|semaine|demain|aujourd|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|calendar",
      {"calendar_list", "calendar_create", "calendar_delete"}),
     (r"image|photo|dessin|logo|illustr|picture|affiche|wallpaper|fond d|visuel|montre", {"generate_image", "find_image", "send_photo"}),

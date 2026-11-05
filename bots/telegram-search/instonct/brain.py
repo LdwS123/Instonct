@@ -7,7 +7,7 @@ import re
 from .config import ALL_MODELS, GEMINI_KEY, HISTORY_TTL, HISTORY_TURNS, STT_API_KEY
 from .texts import SILENT
 from .core import db
-from . import catalog, dispatch, llm, sound
+from . import catalog, dispatch, guard, llm, sound
 
 def agent_groq(chat_id, question, oral=False, taint=False):
     """Agent loop on the main provider (OpenAI-compatible API, Groq by default). Returns (text, links) ; text = None if it is unavailable."""
@@ -94,9 +94,13 @@ def remember(chat_id, question, answer):
 
 
 def ask(chat_id, question, oral=False, taint=False):
-    answer, links = agent_groq(chat_id, question, oral, taint) if ALL_MODELS else (None, [])
-    if answer is None:
-        answer, links = agent(chat_id, [{"text": question}], oral, taint)
+    turn = guard.begin_turn(chat_id, question, taint)      # destructive tools check the user's own words against this
+    try:
+        answer, links = agent_groq(chat_id, question, oral, taint) if ALL_MODELS else (None, [])
+        if answer is None:
+            answer, links = agent(chat_id, [{"text": question}], oral, taint)
+    finally:
+        guard.end_turn(turn)
     if answer is None:
         return links[0]
     if answer == SILENT:

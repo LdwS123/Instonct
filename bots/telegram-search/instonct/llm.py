@@ -138,6 +138,24 @@ NUDGE = ("[Systeme] Avant de dire que tu ne peux pas : cherche une voie avec tes
 MAX_STEPS = 16
 
 
+_LEAK = re.compile(r"<\|(?:channel|call|start|end|message|return)\|>")
+
+
+def leaked_field(r):
+    """Which part of the answer shows raw model markers. Only what would reach the user or run as a tool counts: a hidden 'reasoning' field is allowed to contain them."""
+    try:
+        msg = r.json()["choices"][0]["message"]
+    except (ValueError, KeyError, IndexError, TypeError):
+        return "reponse" if _LEAK.search(r.text.replace("\\u003c", "<").replace("\\u003e", ">")) else ""
+    if _LEAK.search(str(msg.get("content") or "")):
+        return "content"
+    for c in msg.get("tool_calls") or []:
+        fn = (c or {}).get("function") or {}
+        if _LEAK.search(str(fn.get("name") or "") + str(fn.get("arguments") or "")):
+            return "tool_calls"
+    return ""
+
+
 def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _retry=True):
     """Un appel au premier modele disponible (les suivants en secours). Renvoie la reponse HTTP, ou None si tous sont indisponibles."""
     for model in llm_models():
@@ -158,9 +176,10 @@ def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _r
             continue
         log.info("llm %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
         if r.status_code == 200:
-            if re.search(r"<\|(?:channel|call|start|end|message|return)\|>", r.text.replace("\\u003c", "<").replace("\\u003e", ">")):        # le modele a recopie son brouillon interne (format gpt-oss brut) : on ne l'envoie JAMAIS a l'utilisateur
-                log.warning("llm %s : reponse avec brouillon interne, on passe au suivant", model)
-                db.setex(f"cool:{model}", 600, 1)
+            field = leaked_field(r)
+            if field:                                  # le modele a recopie son brouillon interne (format gpt-oss brut) : on ne l'envoie JAMAIS a l'utilisateur
+                log.warning("llm %s : brouillon interne dans %s, on passe au suivant", model, field)
+                db.setex(f"cool:{model}", 60, 1)
                 continue
             try:
                 m0 = r.json()["choices"][0]["message"]

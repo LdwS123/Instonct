@@ -23,6 +23,8 @@ LLM3_API_KEY = os.environ.get("LLM3_API_KEY", "")
 LLM3_MODELS = [m.strip() for m in os.environ.get("LLM3_MODELS", "gpt-oss-120b").split(",") if m.strip()] if (LLM3_BASE_URL and LLM3_API_KEY) else []
 MODEL_API.update({m: (LLM3_BASE_URL, LLM3_API_KEY) for m in LLM3_MODELS if m not in MODEL_API})
 ALL_MODELS = [m for m in LLM_MODELS if LLM_API_KEY] + [m for m in LLM2_MODELS + LLM3_MODELS if m not in LLM_MODELS]
+# Best model first whatever the provider: a quota running out at one provider must not drop us to a weak model while the same strong model is free elsewhere.
+ALL_MODELS.sort(key=lambda m: ("120b" not in m, m.startswith("@cf/")))
 # Voice notes -> text (Whisper API of the same provider by default). STT_LANGUAGE empty = auto-detect, or e.g. "fr".
 STT_BASE_URL = os.environ.get("STT_BASE_URL", LLM_BASE_URL).rstrip("/")
 STT_API_KEY = os.environ.get("STT_API_KEY") or LLM_API_KEY
