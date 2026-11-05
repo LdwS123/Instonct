@@ -7,7 +7,7 @@ import re
 from .config import ALL_MODELS, GEMINI_KEY, HISTORY_TTL, HISTORY_TURNS, STT_API_KEY
 from .texts import SILENT
 from .core import db
-from . import catalog, dispatch, guard, llm, sound
+from . import catalog, chatlog, dispatch, guard, llm, sound
 
 def agent_groq(chat_id, question, oral=False, taint=False):
     """Agent loop on the main provider (OpenAI-compatible API, Groq by default). Returns (text, links) ; text = None if it is unavailable."""
@@ -91,6 +91,7 @@ def remember(chat_id, question, answer):
              json.dumps({"role": "model", "parts": [{"text": answer}]}))
     db.ltrim(key, -2 * HISTORY_TURNS, -1)
     db.expire(key, HISTORY_TTL)
+    chatlog.record(chat_id, question, answer)
 
 
 def ask(chat_id, question, oral=False, taint=False):

@@ -99,7 +99,7 @@ def handle(msg):
         send(chat_id, llm.model_command(chat_id, arg))
     elif cmd == "/reset":
         db.delete(f"hist:{chat_id}")
-        send(chat_id, "Conversation effacee.")
+        send(chat_id, "Conversation recommencee. Les anciens messages restent dans l'archive du serveur, pour que je puisse les retrouver.")
     elif cmd == "/dis":
         if not arg:
             send(chat_id, "Utilisation : /dis I love Jessica")

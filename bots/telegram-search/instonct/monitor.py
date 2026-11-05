@@ -12,7 +12,7 @@ from . import mailtriage
 from . import plus
 from . import screen
 from .core import db, log, scrub, send
-from . import commands, google, life, llm, mail, pagewatch
+from . import commands, google, life, llm, mail, mailindex, pagewatch
 
 # ---------------------------------------------------------------- veille : nouveaux mails et alertes du Mac mini
 _NOISE = re.compile(r"no-?reply|newsletter|notification|mailer-daemon|marketing|promo|noreply|updates@|news@", re.I)
@@ -167,6 +167,22 @@ def check_plus(chat_id):
         send(chat_id, "Bilan du soir :\n" + "\n".join(lines) if lines else "Bilan du soir : rien de special, bonne soiree !")
 
 
+def check_followups(chat_id):
+    """Once a day, at most three mails that seem to wait for an answer, each one mentioned only once. Plain text from the index: no AI, no tool."""
+    now = datetime.now()
+    if not 10 <= now.hour < 21 or not plus.setting(db, "mails_sans_reponse") or db.exists(f"followup:{now:%Y-%m-%d}"):
+        return
+    if mailindex.status().get("a_faire") != 0:                      # half an index would claim we never answered
+        return
+    fresh = [r for r in mailindex.waiting_for_reply() if not db.sismember("followup_seen", r["mid"])][:3]
+    if not fresh:
+        return
+    db.set(f"followup:{now:%Y-%m-%d}", 1, ex=86400)
+    db.sadd("followup_seen", *[r["mid"] for r in fresh])
+    lines = [f"- {r['de'].split('<')[0].strip()[:40]} ({max(1, (int(now.timestamp()) - r['date']) // 86400)} j) : {(r['sujet'] or '')[:80]}" for r in fresh]
+    send(chat_id, "Ces mails attendent peut-etre ta reponse :\n" + "\n".join(lines) + "\n\nDis-moi \"lis celui de ...\" si tu veux que je m'en occupe. Pour ne plus recevoir ca : \"desactive mails sans reponse\".")
+
+
 def check_google(chat_id):
     """Tant que l'app Google est en 'Testing', l'acces expire au bout de 7 jours : on previent a l'avance."""
     from . import gcal
@@ -202,7 +218,7 @@ def watch_loop():
         try:
             owner = db.get("owner_id")
             if owner:
-                for fn in (check_mail, check_system, check_todos, check_plus, check_screen, check_google, pagewatch.check_pages, life.check_habits):
+                for fn in (check_mail, check_system, check_todos, check_plus, check_followups, check_screen, check_google, pagewatch.check_pages, life.check_habits):
                     try:
                         fn(int(owner))
                     except Exception as e:

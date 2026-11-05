@@ -11,7 +11,7 @@ from datetime import datetime
 from . import plus
 from .optional import tvremote
 from .core import db, log, norm, scrub
-from . import catalog, commands, google, guard, life, llm, mail, media, monitor, music, pagewatch, reminders, sound, system_tools, television, web
+from . import catalog, chatlog, commands, google, guard, life, linkedin, llm, mail, mailindex, media, monitor, music, pagewatch, reminders, sound, system_tools, television, web
 
 def run_tool(chat_id, name, args, links):
     log.info("outil %s %s", name, json.dumps(args, ensure_ascii=False)[:100])
@@ -102,6 +102,15 @@ def run_tool(chat_id, name, args, links):
             if refus:
                 return mail.mail_refus(args.get("days") or 365, args.get("limit") or 150, args.get("dry_run") is True)
             return mail.mail_clean(args.get("days", 30), args.get("limit", 100), args.get("dry_run") is True)
+        if name == "mail_index":
+            links.append("(email lu)")
+            return mailindex.tool(args)
+        if name == "chat_search":
+            links.append("(archive)")           # old messages can quote mails or web pages
+            return chatlog.search(chat_id, str(args.get("query", "")), args.get("limit") or 8)
+        if name == "linkedin":
+            links.append("(page web)")
+            return linkedin.tool(args)
         if name in ("mail_list", "mail_read", "mail_search"):
             links.append("(email lu)")          # contenu externe : marque la conversation comme "sensible"
             if name == "mail_search":

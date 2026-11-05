@@ -8,7 +8,7 @@ from .optional import whatsapp
 from .config import ALL_MODELS, GEMINI_KEY
 from .texts import MENU
 from .core import db, log, scrub, send, tg
-from . import callbacks, handlers, monitor, reminders, remote_access, sound
+from . import callbacks, chatlog, handlers, mailindex, monitor, reminders, remote_access, sound
 
 def wa_dispatch(m):
     """One WhatsApp message (already checked: signature, allowed number, not a duplicate) -> same code path as Telegram."""
@@ -69,6 +69,8 @@ def main():
     threading.Thread(target=reminders.reminder_loop, daemon=True).start()
     remote_access.start_siri_server()
     threading.Thread(target=monitor.watch_loop, daemon=True).start()
+    threading.Thread(target=mailindex.index_loop, daemon=True).start()
+    chatlog.import_history()
     offset = None
     while True:
         try:

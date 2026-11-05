@@ -25,6 +25,7 @@ SETTINGS = {                       # name -> (default on?, short description)
     "rappel_rdv": (True, "me prevenir 30 minutes avant un rendez-vous de l'agenda (avec le lien Meet)"),
     "relances": (True, "me proposer une relance quand une demande du suivi reste sans nouvelle"),
     "dates": (True, "me rappeler les anniversaires et dates importantes"),
+    "mails_sans_reponse": (True, "me dire une fois par jour quels mails importants attendent peut-etre ma reponse"),
     "menage_auto": (False, "mettre les pubs a la corbeille toutes les nuits"),
     "bilan_soir": (False, "m'envoyer un petit bilan chaque soir a 21 h"),
 }
@@ -55,7 +56,7 @@ def setting(db, name):
 def t_reglage(db, a):
     name = norm(a.get("nom", "")).replace(" ", "_")
     alias = {"menage": "menage_auto", "nettoyage": "menage_auto", "bilan": "bilan_soir", "soir": "bilan_soir", "rdv": "rappel_rdv",
-             "rendez_vous": "rappel_rdv", "relance": "relances", "anniversaires": "dates"}
+             "rendez_vous": "rappel_rdv", "relance": "relances", "anniversaires": "dates", "mails": "mails_sans_reponse", "relance_mails": "mails_sans_reponse"}
     name = alias.get(name, name)
     if name not in SETTINGS:
         return {"reglages": {k: ("oui" if setting(db, k) else "non") + " : " + v[1] for k, v in SETTINGS.items()}}

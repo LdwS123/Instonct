@@ -44,8 +44,14 @@ def _mail_open(n=1, folder="INBOX", readonly=True):
 
 
 def _mail_dec(v):
-    from email.header import decode_header, make_header
+    from email.header import Header, decode_header, make_header
     try:
+        if isinstance(v, Header):       # raw 8-bit header: the email library only gives it back as question marks
+            data = b"".join(p if isinstance(p, bytes) else p.encode() for p, _ in decode_header(v))
+            try:
+                v = data.decode()
+            except UnicodeDecodeError:
+                v = data.decode("latin-1")
         return str(make_header(decode_header(v or ""))).strip()
     except Exception:
         return str(v or "")
@@ -540,7 +546,7 @@ def _body_text(m):
                     raw = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace")
                 except Exception:
                     continue
-                text = raw if ctype == "text/plain" else re.sub(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", raw, flags=re.S)
+                text = raw if ctype == "text/plain" else re.sub(r"<(script|style)[^>]*>.*?(?:</\1>|$)|<!--.*?(?:-->|$)|<[^>]+>", " ", raw, flags=re.S)      # a cut-off mail may never close its style block
                 if text.strip():
                     return re.sub(r"\s+", " ", text).strip()
     return ""

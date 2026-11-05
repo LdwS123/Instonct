@@ -45,6 +45,18 @@ TOOLS = [{"functionDeclarations": [
     {"name": "mail_undo", "description": "REMET dans la boite de reception les mails que tu as mis a la corbeille. Sans query : le dernier lot. query = un mot de l'expediteur ou du sujet. "
      "A utiliser pour 'annule', 'remets ce mail', 'restaure'.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}}},
+    {"name": "mail_index", "description": "CHERCHE DANS TOUS LES MAILS (toute la boite, lue en avance, tres rapide). A utiliser AVANT mail_search pour retrouver un mail, meme ancien, ou repondre a 'quand', 'qui', 'combien'. "
+     "action=search : query (mots), de, type (refus, etape, acceptation, candidature, facture, colis, personne...), days. action=candidatures : une ligne par entreprise avec ou en est la candidature. "
+     "action=sans_reponse : mails importants qui attendent une reponse. action=stats, status. Lis un resultat avec mail_read(id).",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["search", "candidatures", "sans_reponse", "stats", "status"]}, "query": {"type": "string"}, "de": {"type": "string"},
+                    "type": {"type": "string"}, "days": {"type": "integer"}, "limit": {"type": "integer"}}}},
+    {"name": "chat_search", "description": "Cherche dans TOUTES nos anciennes conversations. A utiliser pour 'on avait dit quoi', 'je t'avais parle de', 'la derniere fois', avant de dire que tu ne sais plus.",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}},
+    {"name": "linkedin", "description": "LIT LinkedIn. action=jobs : offres d'emploi publiques, sans compte (keywords, location, days, limit). action=job : texte d'une offre (id). "
+     "action=page : lit une page linkedin.com (url : profil, entreprise, post). action=search : cherche keywords avec kind=personnes, entreprises ou posts. page et search demandent que l'utilisateur se soit connecte lui-meme avec /connexion linkedin. "
+     "action=status. Lecture seule : tu ne postules pas, ne contactes personne et ne contournes jamais un blocage, tu le dis a l'utilisateur.",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["jobs", "job", "page", "search", "status"]}, "keywords": {"type": "string"}, "location": {"type": "string"},
+                    "days": {"type": "integer"}, "limit": {"type": "integer"}, "id": {"type": "string"}, "url": {"type": "string"}, "kind": {"type": "string"}}}},
     {"name": "mail_clean", "description": "NETTOIE la boite de reception : met a la corbeille toutes les pubs et newsletters (le tri protege les mails importants). "
      "days = jusqu'a combien de jours en arriere (30 par defaut), dry_run=true pour seulement compter sans rien supprimer. A utiliser pour 'fais le menage', 'supprime les pubs'. "
      "genre='refus' : trouve (en LISANT les mails, dans tous les dossiers) et supprime les REFUS de candidature, jamais les entretiens ni acceptations (days=365 par defaut). "
@@ -247,7 +259,7 @@ TOOL_GROUPS = [
     (r"musique|son\b|volume|joue|mets|chanson|pause|reprend|stop|\bdis\b|parle|annonce|ecran|titre|artiste|playlist|youtube|sortie|haut.?parleur|ecoute",
      {"play_music", "music_control", "change_volume", "set_volume", "set_output", "say_aloud", "show_on_screen"}),
     (r"tele|chaine|netflix|youtube|prime|disney|hdmi|allume|eteins|remote|source|sony|telecommande", {"tv_remote", "show_remote"}),
-    (r"mail|ecri|envoi|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|refus|restaure|remets|pub\\b|pubs", {"mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply", "mail_undo"}),
+    (r"mail|ecri|envoi|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|refus|restaure|remets|pub\b|pubs", {"mail_index", "mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply", "mail_undo"}),
     (r"agenda|calendrier|rendez|rdv|reunion|meet|evenement|planning|dispo|semaine|demain|aujourd|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|calendar",
      {"calendar_list", "calendar_create", "calendar_delete"}),
     (r"image|photo|dessin|logo|illustr|picture|affiche|wallpaper|fond d|visuel|montre", {"generate_image", "find_image", "send_photo"}),
@@ -261,6 +273,8 @@ TOOL_GROUPS = [
     (r"reveille|wake|wol\b|magic packet|allume (?:le |mon )?(?:pc|ordi)", {"wake_on_lan"}),
     (r"routine|rituel|quand je dis|macro|enchaine|bonne nuit|bonjour steve", {"routine_save", "routine_run", "routine_list", "routine_delete"}),
     (r"liste|courses|acheter|achat|ajoute|shopping|a prendre|cadeau", {"list_add", "list_show", "list_remove"}),
+    (r"linkedin|linked in|scrape|offres? d.emploi|\bjobs?\b|\bemploi|recrute|profil de|chasseur", {"linkedin"}),
+    (r"on a dit|on avait|on s.est dit|t.avais|tu m.avais|tu m.as dit|souviens|rappelle.toi|conversation|derniere fois|l.autre jour|historique|deja parle", {"chat_search"}),
     (r"postule|candidat|relance|attends|reponse|demarche|dossier|suivi|j.ai envoye|en attente", {"suivi"}),
     (r"depens|budget|achete|paye|combien j.ai|euros? (?:de|pour|chez)|resto|essence|courses", {"depenses"}),
     (r"anniversaire|anniv|fete de|date importante|naissance|n.oublie pas", {"dates"}),

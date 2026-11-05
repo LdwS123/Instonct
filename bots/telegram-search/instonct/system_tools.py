@@ -33,7 +33,7 @@ def run_shell(cmd, timeout=120):
 DANGEROUS = re.compile(
     r"\brm\s+-\w*[rf]|\bmkfs|\bdd\s+if=|\b(shutdown|reboot|poweroff|halt)\b|\bpasswd\b|chpasswd|\buserdel\b|\bvisudo\b|"
     r"/etc/sudoers|\bufw\b|sshd_config|authorized_keys|id_rsa|\.env\b|\b(curl|wget)\b.*\|\s*(sudo\s+)?(ba|z)?sh\b|:\(\)\s*\{|"
-    r">\s*/dev/sd|chmod\s+-R\s+777|tailscale\s+(down|logout)|sites\.json|google_token|browser_cookies|\bsystemctl\s+(stop|disable|mask)\s+(ssh|sshd|tailscaled|fail2ban|bot-telegram)")
+    r">\s*/dev/sd|chmod\s+-R\s+777|tailscale\s+(down|logout)|sites\.json|google_token|browser_cookies|browser_profile|mail_index\.sqlite|chat_archive\.sqlite|\bsystemctl\s+(stop|disable|mask)\s+(ssh|sshd|tailscaled|fail2ban|bot-telegram)")
 
 
 def tool_run_command(chat_id, command, tainted, force_confirm=False, background=False):
