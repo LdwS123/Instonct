@@ -9,7 +9,7 @@ Secrets lus dans l'environnement (EnvironmentFile du service systemd), jamais da
 import base64
 import functools
 import hashlib
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 import copy
 import glob
 import json
@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 import unicodedata
+import urllib.parse
 import uuid
 from datetime import datetime, timedelta
 
@@ -204,6 +205,7 @@ AIDE = (
     "/sortie auto|tele|mac : ou sort le son (auto = tele si allumee, sinon Mac mini)\n"
     "/oui, /non : confirmer ou annuler (sinon, appuie sur les boutons)\n"
     "/google : reconnecter ton agenda Google (a faire une fois par semaine)\n"
+    "/siri : dire « Dis Siri, Steve » a ton iPhone, meme verrouille, et il te repond a voix haute\n"
     "/connexion : ouvre un ecran du Mac mini sur ton telephone pour te connecter toi-meme a LinkedIn, etc. (/connexion stop pour fermer)\n"
     "/site : enregistrer un site pour que je m'y connecte (ajouter, liste, suppr)\n"
     "/model : choisir le modele d'IA (sinon automatique)\n"
@@ -222,7 +224,7 @@ AIDE = (
 MENU = [
     ("aide", "Liste des commandes"), ("status", "Etat du Mac mini"), ("temp", "Temperature CPU"),
     ("dis", "Le Mac mini parle (anglais)"), ("parle", "Le Mac mini parle (francais)"),
-    ("connexion", "Ecran du Mac mini sur ton telephone pour te connecter aux sites"), ("voix", "Le Mac mini lit les reponses : on / off"), ("volume", "Volume du Mac mini 0-100"), ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
+    ("siri", "Parler a Steve avec Siri, telephone verrouille"), ("connexion", "Ecran du Mac mini sur ton telephone pour te connecter aux sites"), ("voix", "Le Mac mini lit les reponses : on / off"), ("volume", "Volume du Mac mini 0-100"), ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
     ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
     ("musique", "Jouer une musique YouTube"), ("pause", "Pause"), ("reprendre", "Reprendre la musique"),
     ("telecommande", "Telecommande de la tele"), ("sortie", "Son : auto, tele ou mac"),
@@ -3690,6 +3692,8 @@ def handle(msg):
         confirm_no(chat_id)
     elif cmd == "/temp":
         reply(chat_id, f"Le processeur est a {cpu_temp().replace(' C', ' degres')}.")
+    elif cmd == "/siri":
+        send(chat_id, siri_command(chat_id))
     elif cmd in ("/connexion", "/ecran_distant"):
         send(chat_id, connexion_command(chat_id, arg))
     elif cmd == "/model":
@@ -4040,6 +4044,94 @@ def connexion_command(chat_id, arg):
     return "Mot de passe de l'ecran : " + r["mot_de_passe"]
 
 
+SIRI_PORT = 8765
+
+
+def siri_token():
+    t = db.get("siri_token")
+    if not t:
+        t = uuid.uuid4().hex
+        db.set("siri_token", t)
+    return t
+
+
+def siri_url():
+    ip = screen._tailscale_ip()
+    return f"http://{ip}:{SIRI_PORT}/{siri_token()}" if ip else ""
+
+
+def start_siri_server():
+    """Petit serveur reserve a Tailscale : un Raccourci iPhone ('Dis Siri, Steve') lui envoie ce que tu as dit, meme telephone verrouille.
+    Il repond par du texte que Siri lit a voix haute. Le jeton secret est dans l'adresse ; seul ton reseau Tailscale peut l'atteindre."""
+    ip = screen._tailscale_ip()
+    if not ip:
+        log.info("serveur Siri non demarre : pas d'adresse Tailscale")
+        return
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _out(self, code, txt):
+            data = txt.encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            if self.path.strip("/") != siri_token():
+                return self._out(404, "non")
+            owner = db.get("owner_id")
+            if not owner:
+                return self._out(403, "Parle d'abord au bot sur Telegram.")
+            try:
+                raw = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4000)).decode("utf-8", "ignore")
+                try:
+                    text = str(json.loads(raw).get("texte", ""))
+                except ValueError:
+                    text = urllib.parse.parse_qs(raw).get("texte", [raw])[0] if "=" in raw else raw
+                text = re.sub(r"^\s*(?:hey |ok |eh )?steve\b[\s,:;.!-]*", "", text.strip(), flags=re.I).strip()
+                if len(text) < 2:
+                    return self._out(200, "Je t'ecoute, mais je n'ai rien entendu.")
+                chat = int(owner)
+                if quota_exceeded(chat):
+                    return self._out(200, "Trop de questions pour le moment.")
+                answer = ask(chat, text, oral=True)
+                if answer == SILENT:
+                    return self._out(200, "Le brouillon t'attend sur Telegram.")
+                send(chat, "Siri : " + text + "\n\n" + answer)               # une trace dans la conversation
+                self._out(200, clean_for_speech(answer, 700) or "C'est fait.")
+            except Exception as e:
+                log.warning("serveur Siri : %s", scrub(e))
+                self._out(500, "Petit souci, reessaie.")
+
+    try:
+        srv = ThreadingHTTPServer((ip, SIRI_PORT), H)
+    except OSError as e:
+        log.warning("serveur Siri impossible : %s", scrub(e))
+        return
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    log.info("serveur Siri pret sur %s:%s", ip, SIRI_PORT)
+
+
+def siri_command(chat_id):
+    url = siri_url()
+    if not url:
+        return "Tailscale n'est pas actif sur le Mac mini."
+    send(chat_id, "Pour que « Dis Siri, Steve » marche, meme telephone verrouille :\n\n"
+                  "1) Ouvre l'app Raccourcis (Shortcuts) sur ton iPhone, touche + (nouveau raccourci).\n"
+                  "2) Nomme-le : Steve\n"
+                  "3) Ajoute l'action « Dicter du texte » (langue : francais).\n"
+                  "4) Ajoute « Obtenir le contenu de l'URL » : colle l'adresse du message suivant, Methode = POST, "
+                  "Corps de la requete = JSON, ajoute un champ Texte nomme texte = (Texte dicte).\n"
+                  "5) Ajoute « Enoncer le texte » (Speak Text) avec (Contenu de l'URL).\n\n"
+                  "Ensuite tu dis « Dis Siri, Steve », il t'ecoute, tu dis ta demande, et il te repond a voix haute. "
+                  "Il faut Tailscale allume sur le telephone. Garde cette adresse secrete.")
+    return url
+
+
 def check_screen(chat_id):
     """Ferme tout seul l'ecran distant quand son temps est fini (le watch_loop passe toutes les 10 minutes, le minuteur du systeme fait le reste)."""
     if screen.expire():
@@ -4192,6 +4284,7 @@ def main():
     if db.get("volume"):
         set_volume(int(db.get("volume")), mac_only=True)       # le volume memorise est celui du Mac mini, pas de la tele
     threading.Thread(target=reminder_loop, daemon=True).start()
+    start_siri_server()
     threading.Thread(target=watch_loop, daemon=True).start()
     offset = None
     while True:
