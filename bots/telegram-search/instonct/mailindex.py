@@ -299,6 +299,8 @@ def applications(days=0, limit=25):
 
 # ---------------------------------------------------------------- mails that seem to wait for an answer
 _ANSWER_TYPES = ("etape", "acceptation", "personne")
+_EVENT_SENDER = re.compile(r"luma|eventbrite|meetup\.com|^(?:cal|usr)-", re.I)
+_NO_ANSWER = re.compile(r"time confirmed|registration|reminder|rappel|confirm[ée]|automatic reply|absence|welcome|bienvenue", re.I)    # nothing to answer
 
 
 def waiting_for_reply(days=14, min_age_hours=48):
@@ -310,14 +312,21 @@ def waiting_for_reply(days=14, min_age_hours=48):
         rows = con.execute(f"SELECT * FROM mails WHERE niveau='important' AND type IN ({marks}) AND mid!='' AND date BETWEEN ? AND ? ORDER BY date DESC",
                            (*_ANSWER_TYPES, now - days * 86400, now - min_age_hours * 3600)).fetchall()
         recent = con.execute("SELECT de, refs FROM mails WHERE date>=? AND refs!=''", (now - (days + 30) * 86400,)).fetchall()
+    names = {parseaddr(r["de"])[0].lower() for r in recent if parseaddr(r["de"])[1].lower() in own} - {""}   # same person, other address
+
+    def mine(de):
+        name, addr = parseaddr(de)
+        return addr.lower() in own or name.lower() in names
+
     answered = set()
     for r in recent:
-        if parseaddr(r["de"])[1].lower() in own:
+        if mine(r["de"]):
             answered.update(r["refs"].split())
     out = []
     for r in _unique(rows):
         addr = parseaddr(r["de"])[1].lower()
-        if addr in own or r["mid"] in answered or mailtriage.NOREPLY.search(addr) or mailtriage.NOISE_SENDER.search(addr):
+        if (mine(r["de"]) or r["mid"] in answered or mailtriage.NOREPLY.search(addr) or mailtriage.NOISE_SENDER.search(addr)
+                or _EVENT_SENDER.search(addr) or _NO_ANSWER.search(r["sujet"] or "")):
             continue
         if r["type"] == "personne" and "?" not in (r["body"] or "")[:1500]:
             continue

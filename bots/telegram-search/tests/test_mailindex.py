@@ -285,3 +285,20 @@ def test_no_reminder_while_the_index_is_incomplete(monkeypatch):
     mailindex.sync_once(budget=1)
     monitor.check_followups(7)
     assert sent == []
+
+
+def test_digest_skips_our_other_address_events_and_confirmations(monkeypatch):
+    monkeypatch.setattr(mailindex, "_own_addresses", lambda: {"moi@gmail.com"})
+    old = int(time.time()) - 4 * 86400
+    with mailindex._db() as con:
+        for uid, de, sujet, refs in (
+            (1, "Kosta G <moi@gmail.com>", "Re: truc", "<x>"),
+            (2, "Kosta G <moi.autre@gmail.com>", "Re: Jobteaser", ""),
+            (3, "AI Valley <usr-abc@user.luma-mail.com>", "You are invited", ""),
+            (4, "Maxime <maxime@najar.com>", "Time confirmed: First interview", ""),
+            (5, "Olivia <olivia@alan.com>", "Sales Graduate Program", ""),
+        ):
+            con.execute("INSERT INTO mails(acc, folder, uid, uidvalidity, mid, date, de, dest, sujet, type, niveau, body, refs) VALUES (1,'INBOX',?,1,?,?,?,'',?,'etape','important','',?)",
+                        (uid, f"<m{uid}>", old, de, sujet, refs))
+        con.commit()
+    assert [r["de"] for r in mailindex.waiting_for_reply()] == ["Olivia <olivia@alan.com>"]

@@ -30,15 +30,32 @@ NEG = _rx(r"malheureusement|regrett?ons?|nous (ne )?(pouvons|retenons|allons) pa
           r"unfortunately(?!.{0,40}(repl|read|receiv|respond)).{0,140}(not (be )?(moving|progressing|proceeding|able|selected|move|invit)|won.t|unable|"
           r"decided not|no relevant|don.t have|not to move|not (be )?(taking|going))|regret to|not (be )?(moving|going|progressing) forward|"
           r"decided (not )?to (move|proceed|pursue)(?!( forward| ahead)? with (you|your)\b)|"
-          r"won.t be (moving|proceeding)|ne correspond pas|ne donnerons pas suite")
+          r"won.t be (moving|proceeding)|(profil|candidature|experience).{0,60}ne correspond pas|ne correspond pas .{0,40}(profil|poste|attentes|recherche)|ne donnerons pas suite")
+# Said in a real refusal. Plain "unfortunately" is not enough in an acknowledgement ("unfortunately we cannot answer everyone").
+FIRM_NEG = _rx(r"regret to|regrett?ons?|malheureusement,? (nous|votre)|(will not|won.t|not) (be )?(mov|proceed|progress)|position has (now )?been filled|"
+               r"decided (not )?to (move|proceed|pursue)|poursuivre avec (d.autres|un autre)|n.a pas (ete )?retenue?|pas ete retenue?|ne donnerons pas suite|ne pas (donner suite|poursuivre|retenir)")
 POS = _rx(r"felicitations|nous avons le plaisir|heureux (de|d.) (vous )?(annoncer|informer|proposer|accueillir)|ravis (de|d.)|"
           r"candidature (a (ete )?retenue|est retenue|retenue)|votre profil (nous a|a retenu)|nous souhaitons (vous )?(rencontrer|proposer|inviter|poursuivre)|"
           r"proposition d.embauche|promesse d.embauche|offre (ferme|de contrat)|contrat (de travail )?(a signer|joint)|bienvenue (chez|dans l.equipe)|"
           r"congratulations|pleased to (offer|invite|inform)|we.d like to (invite|schedule|offer|meet)|we would like to (invite|schedule|offer|meet)|"
           r"happy to (offer|invite)|offer letter|you.ve been (selected|shortlisted)|vous (etes|avez ete) (selectionne|retenu)")
-STEP = _rx(r"entretien|interview|rendez-vous|\brdv\b|creneau|disponibilites?|visio|google meet|teams|zoom|appel (telephonique|de presentation)|"
+STEP = _rx(r"entretien|interview|rendez-vous|\brdv\b|creneau|disponibilites?|visio|google meet|microsoft teams|teams meeting|reunion teams|zoom\.us|sur zoom|via zoom|zoom meeting|appel (telephonique|de presentation)|"
            r"echange (telephonique|visio)|test (technique|de personnalite)|etape suivante|prochaine etape|next step|case study|"
            r"prise de contact|premier echange|schedule a call|book a (time|call|slot)|calendly|invitation:")
+# In the body, "application", "position" or "job" often mean something else ("your Stripe application", "our position on privacy").
+STRONG_CTX = _rx(r"candidature|candidat|recrut|embauche|applying|your application (to|for|at|with)\b|appl(y|ied) (for|to) the .{0,60}(position|role|poste)|(for|on|about|regarding) your application|recruiter|recruteur|hiring (team|manager)|offre d.emploi|ressources humaines")
+# An acknowledgement ("thanks for applying") usually describes the process, so words like "interview" in it promise nothing.
+ACK = _rx(r"(merci|thanks?|thank you)\b.{0,30}(candidature|application|applying|to apply|postul|interest in|votre interet)|bien recue?\b|avons (bien )?recu|a bien ete (recue?|envoyee|transmise|enregistree)|"
+          r"(we.ve|we have|we) received|received your|application (was |has been |is )?(received|submitted|sent|complete)|candidature (bien )?(recue|envoyee|enregistree|transmise)|"
+          r"your application (to|for|at|with)\b|confirmation de (votre |ta )?candidature")
+REAL_NEXT = _rx(r"we.d like to (invite|schedule|meet|move)|we would like to (invite|schedule|meet|move)|(pleased|happy|excited|delighted) to (invite|move|offer)|"
+                r"invited? you to (an? |your |our )?(\w+ )?(interview|call|meeting|chat|video|complete|schedule|book|take)|you.ve been (selected|shortlisted|invited)|"
+                r"nous souhaitons (vous )?(rencontrer|inviter|poursuivre)|nous (aimerions|voudrions) (vous )?(rencontrer|echanger|planifier)|"
+                r"(choose|pick|select|book) (a |your )?(time|slot|creneau)|calendly\.com|vos disponibilites|(share|send|give|indicate)\b.{0,12}your availability|"
+                r"complete (the|this|your) (assessment|test|questionnaire|video)|"
+                r"(felicitations|congratulations)(?! (on|pour|d.avoir) (\w+ ){0,2}(taking|completing|applying|candidature|postule|first))")
+_CONDITIONAL = _rx(r"\b(if|should|once|may|might|whether|likely|si|lorsque|au cas|eventuellement|peut-etre|probablement)\b")
+INTERVIEW_SUBJECT = _rx(r"entretien|interview|rendez-vous|\brdv\b|next step|prochaine etape|assessment|case study|invitation|meeting|time confirmed|\bscreen\b|\bcall\b")
 # ---- other things that matter
 FACTURE = _rx(r"facture|invoice|\brecu\b|receipt|paiement|payment|prelevement|echeance|relance|rappel de paiement|amende|avis d.imposition|"
               r"impots?|remboursement|refund|virement|\bsolde\b|quittance|loyer|abonnement (renouvel|expir)")
@@ -71,6 +88,17 @@ def _hit(rx, text):
     return m.group(0).strip() if m else ""
 
 
+def _said_firmly(rx, text):
+    """A statement, not a possibility: "if your profile matches, we will invite you" invites nobody."""
+    return any(not _CONDITIONAL.search(text[max(0, m.start() - 80):m.start()]) for m in rx.finditer(text))
+
+
+def _only_acknowledges(sub, txt, scope):
+    if not (ACK.search(sub) or ACK.search(txt[:600])):
+        return False
+    return not INTERVIEW_SUBJECT.search(sub) and not _said_firmly(REAL_NEXT, scope)
+
+
 def classify(sender, subject, body="", bulk=False):
     frm, sub = _n(sender), _n(subject)
     txt = _n(body)[:2500]
@@ -83,10 +111,12 @@ def classify(sender, subject, body="", bulk=False):
         return _res("pub", "alerte emploi", "Pub : alerte d'offres d'emploi", f"« {h} »")
 
     # 2. answer to an application / interview (the thing that matters most)
-    if CTX.search(scope) or (not bulk and CTX.search(frm)):
+    if CTX.search(sub) or (not bulk and (CTX.search(frm) or STRONG_CTX.search(txt))):
         h = _hit(NEG, scope)
-        if h:
+        if h and (_said_firmly(FIRM_NEG, scope) or not ACK.search(sub)):
             return _res("important", "refus", "REFUS de candidature", f"« {h} »")
+        if _only_acknowledges(sub, txt, scope):
+            return _res("important", "candidature", "Candidature : bien recue", "simple accuse de reception")
         h = _hit(POS, scope)
         if h:
             return _res("important", "acceptation", "BONNE NOUVELLE : acceptation ou suite positive", f"« {h} »")
