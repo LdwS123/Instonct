@@ -3136,7 +3136,7 @@ NUDGE = ("[Systeme] Avant de dire que tu ne peux pas : cherche une voie avec tes
 MAX_STEPS = 16
 
 
-def llm_call(messages, question, oral, tools=True, toolset=None, plain=False):
+def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _retry=True):
     """Un appel au premier modele disponible (les suivants en secours). Renvoie la reponse HTTP, ou None si tous sont indisponibles."""
     for model in llm_models():
         if db.get(f"cool:{model}"):
@@ -3163,6 +3163,12 @@ def llm_call(messages, question, oral, tools=True, toolset=None, plain=False):
             db.setex(f"cool:{model}", max(5, min(wait, 3600)), 1)
         elif r.status_code not in (400, 413):          # 400 = appel d'outil rate, 413 = requete trop grosse pour CE modele : on tente le suivant, sans le bloquer
             db.setex(f"cool:{model}", 120, 1)
+    if _retry:                                         # Groq dit souvent "reessaie dans 5 a 20 s" : on attend un peu plutot que de passer tout de suite a Gemini (souvent sature)
+        ttls = [db.ttl(f"cool:{m}") for m in llm_models()]
+        ttls = [t for t in ttls if t and t > 0]
+        if ttls and min(ttls) <= 25:
+            time.sleep(min(ttls) + 1)
+            return llm_call(messages, question, oral, tools, toolset, plain, _retry=False)
     return None
 
 
