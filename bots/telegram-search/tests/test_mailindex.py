@@ -302,3 +302,20 @@ def test_digest_skips_our_other_address_events_and_confirmations(monkeypatch):
                         (uid, f"<m{uid}>", old, de, sujet, refs))
         con.commit()
     assert [r["de"] for r in mailindex.waiting_for_reply()] == ["Olivia <olivia@alan.com>"]
+
+
+def test_digest_knows_gmail_ignores_dots(monkeypatch):
+    """Our own account is written without dots, the mails we send carry them: replies must still count as ours."""
+    monkeypatch.setattr(mailindex.mail, "_mail_accounts", lambda: [{"user": "moiautre@gmail.com"}])
+    old = int(time.time()) - 4 * 86400
+    with mailindex._db() as con:
+        for uid, de, mid, refs in (
+            (1, "Olivia <olivia@alan.com>", "<a>", ""),
+            (2, "Moi <moi.autre@gmail.com>", "<b>", "<a>"),
+            (3, "Paul <paul@orus.eu>", "<c>", ""),
+            (4, "Moi <moi.autre+job@gmail.com>", "<d>", ""),
+        ):
+            con.execute("INSERT INTO mails(acc, folder, uid, uidvalidity, mid, date, de, dest, sujet, type, niveau, body, refs) VALUES (1,'INBOX',?,1,?,?,?,'','Sujet','etape','important','',?)",
+                        (uid, mid, old, de, refs))
+        con.commit()
+    assert [r["de"] for r in mailindex.waiting_for_reply()] == ["Paul <paul@orus.eu>"]

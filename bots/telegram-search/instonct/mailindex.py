@@ -271,8 +271,16 @@ def company_of(de, sujet):
     return cleaned or (domain and _domain_name(domain).capitalize()) or "inconnu"
 
 
+def _same_mailbox(addr):
+    """Gmail ignores dots and +tags: a.b+x@gmail.com and ab@gmail.com are the same inbox."""
+    local, _, domain = str(addr or "").strip().lower().partition("@")
+    if domain in ("gmail.com", "googlemail.com"):
+        return local.split("+")[0].replace(".", "") + "@gmail.com"
+    return f"{local}@{domain}"
+
+
 def _own_addresses():
-    return {a["user"].lower() for a in mail._mail_accounts()}
+    return {_same_mailbox(a["user"]) for a in mail._mail_accounts()}
 
 
 def applications(days=0, limit=25):
@@ -284,7 +292,7 @@ def applications(days=0, limit=25):
         rows = con.execute(f"SELECT * FROM mails WHERE type IN ({marks}) AND date>=? ORDER BY date", (*_APPLICATION_TYPES, since)).fetchall()
     own, companies = _own_addresses(), {}
     for r in _unique(rows):
-        if parseaddr(r["de"])[1].lower() in own:
+        if _same_mailbox(parseaddr(r["de"])[1]) in own:
             continue
         name = company_of(r["de"], r["sujet"])
         c = companies.setdefault(norm(name), {"entreprise": name, "premier_mail": _when(r["date"])[:10], "mails": 0})
@@ -299,7 +307,7 @@ def applications(days=0, limit=25):
 
 # ---------------------------------------------------------------- mails that seem to wait for an answer
 _ANSWER_TYPES = ("etape", "acceptation", "personne")
-_EVENT_SENDER = re.compile(r"luma|eventbrite|meetup\.com|^(?:cal|usr)-", re.I)
+_EVENT_SENDER = re.compile(r"luma|eventbrite|meetup\.com|^(?:cal|usr)-|^(?:alerts?|invites?|notifications?)@", re.I)
 _NO_ANSWER = re.compile(r"time confirmed|registration|reminder|rappel|confirm[ée]|automatic reply|absence|welcome|bienvenue", re.I)    # nothing to answer
 
 
@@ -312,11 +320,11 @@ def waiting_for_reply(days=14, min_age_hours=48):
         rows = con.execute(f"SELECT * FROM mails WHERE niveau='important' AND type IN ({marks}) AND mid!='' AND date BETWEEN ? AND ? ORDER BY date DESC",
                            (*_ANSWER_TYPES, now - days * 86400, now - min_age_hours * 3600)).fetchall()
         recent = con.execute("SELECT de, refs FROM mails WHERE date>=? AND refs!=''", (now - (days + 30) * 86400,)).fetchall()
-    names = {parseaddr(r["de"])[0].lower() for r in recent if parseaddr(r["de"])[1].lower() in own} - {""}   # same person, other address
+    names = {parseaddr(r["de"])[0].lower() for r in recent if _same_mailbox(parseaddr(r["de"])[1]) in own} - {""}   # same person, other address
 
     def mine(de):
         name, addr = parseaddr(de)
-        return addr.lower() in own or name.lower() in names
+        return _same_mailbox(addr) in own or name.lower() in names
 
     answered = set()
     for r in recent:
