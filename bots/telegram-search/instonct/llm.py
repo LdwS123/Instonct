@@ -1,6 +1,7 @@
 """Language models: web search, Gemini, the OpenAI-compatible providers (Groq, Cloudflare, Cerebras) and their fallback order."""
 
 import copy
+import os
 import re
 from urllib.parse import unquote, urlsplit
 import time
@@ -17,27 +18,44 @@ _AD_LINK = re.compile(r"/aclick\?|duckduckgo\.com/y\.js|googleadservices\.")
 
 
 SPARE_ENGINES = "brave,startpage,mojeek,yahoo"      # other engines of the same library: used only when the usual mix finds nothing
+SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://127.0.0.1:8888")     # our own search engine on this machine ("" = not installed)
+
+
+def searxng(query, n, kind):
+    """Our own SearXNG (it asks about twenty engines at once). [] if it is not installed or does not answer."""
+    if not SEARXNG_URL:
+        return []
+    try:
+        r = requests.get(SEARXNG_URL + "/search", params={"q": query, "format": "json", "language": "fr", "categories": "news" if kind == "news" else "general"}, timeout=12)
+        r.raise_for_status()
+        return [{"title": x.get("title", ""), "body": x.get("content", ""), "href": x.get("url", ""), "date": (x.get("publishedDate") or "")[:10]}
+                for x in r.json().get("results", []) if x.get("url") and not _AD_LINK.search(x["url"])][:n]
+    except (requests.RequestException, ValueError) as e:
+        log.warning("searxng indisponible : %s", scrub(e)[:100])
+        return []
 
 
 def web_search(query, n=5, kind="text"):
-    """Recherche web gratuite, sans cle (DuckDuckGo et autres moteurs via ddgs). kind="news" pour l'actualite. Renvoie [] en cas d'echec."""
+    """Recherche web gratuite, sans cle : DuckDuckGo (ddgs), puis notre SearXNG, puis d'autres moteurs. kind="news" pour l'actualite. Renvoie [] en cas d'echec."""
     try:
         from ddgs import DDGS
     except ImportError:
-        return []
-    for spare in (False, True):
-        try:
-            if kind == "news":
-                found = [{**r, "href": r.get("url", "")} for r in (DDGS(timeout=6).news(query, max_results=n, region="fr-fr") or [])]
-            else:
-                found = [r for r in (DDGS(timeout=8 if spare else 4).text(query, max_results=n, region="fr-fr", **({"backend": SPARE_ENGINES} if spare else {})) or [])
-                         if not _AD_LINK.search(r.get("href", ""))]
-            if found:
-                return found
-        except Exception as e:
-            log.warning("recherche web %s : %s", "de secours indisponible" if spare else "indisponible", scrub(e))
-        if kind == "news":
-            break
+        return searxng(query, n, kind)
+    for step in ("ddgs", "searxng", "spare"):
+        if step == "searxng":
+            found = searxng(query, n, kind)
+        else:
+            try:
+                if kind == "news":
+                    found = [{**r, "href": r.get("url", "")} for r in (DDGS(timeout=6).news(query, max_results=n, region="fr-fr") or [])] if step == "ddgs" else []
+                else:
+                    found = [r for r in (DDGS(timeout=8 if step == "spare" else 4).text(query, max_results=n, region="fr-fr", **({"backend": SPARE_ENGINES} if step == "spare" else {})) or [])
+                             if not _AD_LINK.search(r.get("href", ""))]
+            except Exception as e:
+                log.warning("recherche web (%s) indisponible : %s", step, scrub(e))
+                found = []
+        if found:
+            return found
     return []
 
 

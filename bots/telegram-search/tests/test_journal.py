@@ -58,6 +58,7 @@ def test_search_tries_the_spare_engines_when_the_usual_mix_finds_nothing(monkeyp
             seen.append(k.get("backend"))
             return [{"title": "t", "href": "https://a.example/", "body": "b"}] if k.get("backend") else []
     monkeypatch.setitem(sys.modules, "ddgs", types.SimpleNamespace(DDGS=Fake))
+    monkeypatch.setattr(llm, "SEARXNG_URL", "")
     assert llm.web_search("test")[0]["href"] == "https://a.example/" and seen == [None, llm.SPARE_ENGINES]
 
 
@@ -74,3 +75,32 @@ def test_search_does_not_retry_when_the_first_try_works(monkeypatch):
     monkeypatch.setitem(sys.modules, "ddgs", types.SimpleNamespace(DDGS=Fake))
     llm.web_search("test")
     assert len(seen) == 1
+
+
+def test_our_own_search_engine_answers_before_the_spare_engines(monkeypatch):
+    class Fake:
+        def __init__(self, timeout=5):
+            pass
+
+        def text(self, query, **k):
+            assert not k.get("backend"), "the spare engines must not be asked when SearXNG answered"
+            return []
+
+    class Reply:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"results": [{"title": "T", "content": "C", "url": "https://s.example/x", "publishedDate": "2026-11-01T00:00:00"}, {"title": "pub", "url": "https://duckduckgo.com/y.js?x"}]}
+    monkeypatch.setitem(sys.modules, "ddgs", types.SimpleNamespace(DDGS=Fake))
+    monkeypatch.setattr(llm, "SEARXNG_URL", "http://x")
+    monkeypatch.setattr(llm.requests, "get", lambda *a, **k: Reply())
+    assert llm.web_search("test") == [{"title": "T", "body": "C", "href": "https://s.example/x", "date": "2026-11-01"}]
+
+
+def test_a_dead_searxng_does_not_break_the_search(monkeypatch):
+    monkeypatch.setattr(llm, "SEARXNG_URL", "http://x")
+    def down(*a, **k):
+        raise llm.requests.ConnectionError("refused")
+    monkeypatch.setattr(llm.requests, "get", down)
+    assert llm.searxng("test", 5, "text") == []

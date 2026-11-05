@@ -1,0 +1,15 @@
+[Unit]
+Description=SearXNG (recherche web maison)
+After=network-online.target
+
+[Service]
+User=ldws123
+WorkingDirectory=/home/ldws123/searxng/src
+Environment=SEARXNG_SETTINGS_PATH=/home/ldws123/searxng/settings.yml
+ExecStart=/home/ldws123/searxng/venv/bin/python -m searx.webapp
+Restart=on-failure
+MemoryMax=600M
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
