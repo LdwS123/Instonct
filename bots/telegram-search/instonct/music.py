@@ -146,13 +146,38 @@ def music_play(query, track=True):
     return f"Je lance : {title} ({dur})"
 
 
+LIVE = ("PLAYING", "PAUSED", "BUFFERING")
+
+
+def stop_all(tv=False):
+    """Stops the music for real and checks it: our own player, then whatever the TV is casting. Never says "stopped" without looking."""
+    with _music_lock:
+        was_tv = bool(_music.get("tv"))
+        was = music_playing()
+        if was:
+            _music_kill()
+        if not (tv or was_tv):
+            return "Musique arretee." if was else "Aucune musique en cours."
+        if cast.catt_info().get("player_state") in LIVE:
+            cast.catt("stop")
+            if cast.catt_info().get("player_state") in LIVE:
+                return "J'ai envoye l'arret mais la tele joue encore. Essaie la touche pause de la telecommande."
+            return "Arrete sur la tele."
+        if was:
+            return "Musique arretee."
+        # Nothing of ours is playing: it may be an app on the TV, so the stop key is the honest thing left to try.
+        res = television.tv_do("stop")
+        if res != "OK":
+            return res
+        return "Je ne lance rien moi-meme sur la tele : j'ai envoye la touche stop a la tele, je ne peux pas verifier si ca a joue."
+
+
 def music_control(action):
+    if action == "stop":
+        return stop_all()
     with _music_lock:
         if not music_playing():
             return "Aucune musique en cours."
-        if action == "stop":
-            _music_kill()
-            return "Musique arretee."
         if _music.get("tv"):
             cast.catt("pause" if action == "pause" else "play")
         else:
@@ -161,7 +186,7 @@ def music_control(action):
         return "Musique en pause." if action == "pause" else "Musique reprise."
 
 
-RE_STOP = re.compile(r"(?:jessica )?(?:stop|stoppe|arrete|coupe|eteins|silence)(?: la| le| ca)?(?: musique| son| chanson| video)?")
+RE_STOP = re.compile(r"(?:jessica )?(?:stop|stoppe|arrete|coupe|eteins|silence)(?: la| le| ca)?(?: musique| son| chanson| video)?(?: sur| de| dans| a)?(?: la| le| l)?(?: tele| television| tv)?")
 RE_PAUSE = re.compile(r"(?:jessica )?(?:pause|mets? (?:la )?(?:musique )?en pause)")
 RE_RESUME = re.compile(r"(?:jessica )?(?:reprends?|continue|play|relance)(?: la)?(?: musique)?")
 RE_PLAY = re.compile(r"(?:jessica )?(?:peux tu |tu peux )?(?:mets|met|joue|lance|passe)(?: moi)?(?: (?:une|un|la|le|du|de la|des)\b)?"
@@ -214,7 +239,7 @@ def quick_music(text):
     if vol:
         return vol
     if RE_STOP.fullmatch(t):
-        return music_control("stop")
+        return stop_all(tv=bool(re.search(r"\b(?:tele|television|tv)\b", t)))
     if RE_PAUSE.fullmatch(t):
         return music_control("pause")
     if RE_RESUME.fullmatch(t) and (t != "continue" or _music.get("paused")):      # "continue" alone is usually said to the bot, not to the music

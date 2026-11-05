@@ -158,3 +158,52 @@ def test_the_tv_voice_server_does_not_fight_siri_for_the_port(monkeypatch):
     monkeypatch.setitem(cast._cast_srv, "on", False)
     cast.cast_serve()
     assert bound == [("192.168.1.64", cast.CAST_PORT)]
+
+
+@pytest.fixture
+def cast_state(monkeypatch):
+    """Fake Chromecast: `states` is what the TV reports each time it is asked; `sent` records catt commands and TV keys. Never the real TV."""
+    sent, states = [], []
+    monkeypatch.setattr(cast, "catt_info", lambda: {"player_state": states.pop(0) if states else "IDLE"})
+    monkeypatch.setattr(cast, "catt", lambda *a, **k: sent.append(a) or "")
+    monkeypatch.setattr(television, "tv_do", lambda key, times=1: sent.append(("key", key)) or "OK")
+    monkeypatch.setattr(music, "music_playing", lambda: False)
+    music._music["tv"] = False
+    return sent, states
+
+
+@pytest.mark.parametrize("heard", ["Arrête la musique sur la télé.", "Stop la musique sur la télé", "Coupe la musique de la télé", "Steve, arrête la musique sur la télé stp"])
+def test_stop_music_on_the_tv_really_stops_it(spoken, cast_state, heard):
+    sent, states = cast_state
+    states += ["PLAYING", "IDLE"]
+    out = spoken(heard)
+    assert ("stop",) in sent and out["written"] == ["Arrete sur la tele."] and not out["model"]
+
+
+def test_if_the_tv_keeps_playing_the_bot_says_so(spoken, cast_state):
+    sent, states = cast_state
+    states += ["PLAYING", "PLAYING"]
+    assert "joue encore" in spoken("Arrête la musique sur la télé")["written"][0]
+
+
+def test_an_app_playing_on_the_tv_gets_the_stop_key_and_the_truth(spoken, cast_state):
+    sent, states = cast_state
+    out = spoken("Arrête la musique sur la télé")
+    assert sent == [("key", "stop")] and "ne peux pas verifier" in out["written"][0]
+
+
+def test_the_bot_never_says_stopped_when_nothing_plays(spoken, cast_state):
+    sent, _ = cast_state
+    assert spoken("Arrête la musique")["written"] == ["Aucune musique en cours."] and sent == []
+
+
+def test_the_tool_path_checks_too(monkeypatch, cast_state):
+    sent, states = cast_state
+    monkeypatch.setattr(music, "music_playing", lambda: True)
+    monkeypatch.setattr(music, "_music_kill", lambda: sent.append("killed"))
+    assert music.music_control("stop") == "Musique arretee." and sent == ["killed"]
+
+
+def test_cut_the_sound_of_the_tv_is_still_mute(spoken, tv):
+    spoken("Coupe le son sur la télé")
+    assert tv == [("key", "mute")]
