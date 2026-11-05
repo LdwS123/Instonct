@@ -98,3 +98,17 @@ def test_interview_prep_gathers_everything_and_says_what_failed(monkeypatch):
 def test_empty_questions_are_refused():
     for name in ("actu", "recherche_approfondie", "heure_monde", "prepare_entretien"):
         assert "erreur" in monde.tool(name, {}, [])
+
+
+def test_adverts_are_dropped_from_search_results(monkeypatch):
+    import sys
+    import types
+
+    class Fake:
+        def __init__(self, timeout=0):
+            pass
+
+        def text(self, query, max_results=5, region=""):
+            return [{"title": "Pub", "href": "https://www.bing.com/aclick?ld=x"}, {"title": "Vrai", "href": "https://a.example"}]
+    monkeypatch.setitem(sys.modules, "ddgs", types.SimpleNamespace(DDGS=Fake))
+    assert [r["title"] for r in llm.web_search("x")] == ["Vrai"]

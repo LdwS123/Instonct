@@ -84,7 +84,7 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"url": {"type": "string"}, "debut": {"type": "integer"}}, "required": ["url"]}},
     {"name": "reglage", "description": "Active/coupe une fonction automatique : nom = rappel_rdv | relances | dates | menage_auto (pubs a la corbeille chaque nuit) | bilan_soir (bilan a 21 h). actif=true/false ; sans actif = voir l'etat ; sans nom = tout lister.",
      "parameters": {"type": "object", "properties": {"nom": {"type": "string"}, "actif": {"type": "boolean"}}}},
-    {"name": "web_search", "description": "Cherche sur le web pour des infos recentes ou verifiables (kind=news pour l'actualite). Inutile pour la conversation simple.",
+    {"name": "web_search", "description": "Cherche sur le web pour des infos recentes ou verifiables (kind=news seulement pour l'actualite). N'ajoute pas d'annee a la recherche, sauf s'il en donne une. Inutile pour la conversation simple.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "kind": {"type": "string", "enum": ["text", "news"]}, "limit": {"type": "integer"}}, "required": ["query"]}},
     {"name": "play_music", "description": "Joue une musique ou une video YouTube (audio) sur la sortie choisie (Mac mini ou tele). Donne titre et artiste, ou un lien.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
@@ -105,7 +105,7 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"action": {"type": "string"}, "times": {"type": "integer"}, "value": {"type": "string"}}, "required": ["action"]}},
     {"name": "show_on_screen", "description": "Affiche un message sur l'ecran du Mac mini pendant 1 minute.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
-    {"name": "todo_add", "description": "Ajoute une chose a faire a la liste de l'utilisateur (il te dit 'j'ai ca a faire', 'il faut que je ...'). "
+    {"name": "todo_add", "description": "Ajoute une chose a faire a la liste de l'utilisateur (il te dit 'j'ai ca a faire', 'il faut que je ...'). PAS quand il te demande de le faire a sa place (reserve, commande, conteste, appelle) : pour ca, demarche ou appel. "
      "Appelle-le sans demander la permission, une fois par tache. Le bot lui rappellera automatiquement ce qui reste.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "todo_list", "description": "Montre ce qu'il reste a faire a l'utilisateur (sa liste de taches).", "parameters": {"type": "object", "properties": {}}},
@@ -215,17 +215,17 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"amount": {"type": "number"}, "from": {"type": "string"}, "to": {"type": "string"}}, "required": ["from", "to"]}},
     {"name": "wake_on_lan", "description": "Reveille un ordinateur du reseau local a partir de son adresse MAC (Wake-on-LAN).",
      "parameters": {"type": "object", "properties": {"mac": {"type": "string"}}, "required": ["mac"]}},
-    {"name": "demarche", "description": "Dossier pour une vraie demarche en plusieurs etapes (voyage, courses, facture a contester...). action=start (type: voyage|courses|facture|autre, objectif, et depart, arrivee, date, retour, personnes, produits, texte) donne les liens et les etapes. "
+    {"name": "demarche", "description": "A utiliser des qu'il te demande de reserver, commander, acheter ou contester : dossier pour une vraie demarche (voyage, courses, facture...). action=start (type: voyage|courses|facture|autre, objectif, et depart, arrivee, date, retour, personnes, produits, texte) donne les liens et les etapes. "
      "action=note (id, texte), list, resume (id), finish (id, texte), main (url facultative) : envoie a l'utilisateur le lien de l'ecran pour qu'il finisse lui-meme (connexion, paiement, validation).",
      "parameters": {"type": "object", "properties": {
          "action": {"type": "string"}, "id": {"type": "string"}, "type": {"type": "string"}, "objectif": {"type": "string"}, "texte": {"type": "string"}, "url": {"type": "string"},
          "depart": {"type": "string"}, "arrivee": {"type": "string"}, "date": {"type": "string", "description": "AAAA-MM-JJ"}, "retour": {"type": "string", "description": "AAAA-MM-JJ"},
          "personnes": {"type": "integer"}, "produits": {"type": "array", "items": {"type": "string"}}}, "required": ["action"]}},
-    {"name": "appel", "description": "Prepare un appel telephonique que l'UTILISATEUR passera : numero cliquable et texte a lire. Aucune ligne n'est branchee : tu ne peux pas appeler toi-meme.",
+    {"name": "appel", "description": "A utiliser des qu'il te demande d'appeler quelqu'un. Prepare l'appel que l'UTILISATEUR passera : numero cliquable et texte a lire. Aucune ligne n'est branchee : tu ne peux pas appeler toi-meme.",
      "parameters": {"type": "object", "properties": {"numero": {"type": "string"}, "qui": {"type": "string"}, "objet": {"type": "string"}, "script": {"type": "string"}}, "required": ["objet"]}},
-    {"name": "actu", "description": "Les dernieres nouvelles sur un sujet (titres, source, date, lien).",
+    {"name": "actu", "description": "Les dernieres nouvelles sur un sujet (titres, source, date, lien). A preferer a web_search pour l'actualite.",
      "parameters": {"type": "object", "properties": {"sujet": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["sujet"]}},
-    {"name": "recherche_approfondie", "description": "Cherche sur le web puis lit vraiment les meilleures pages : pour comparer, enqueter, faire le point. Plus lent que web_search.",
+    {"name": "recherche_approfondie", "description": "Cherche sur le web puis lit vraiment les meilleures pages : pour comparer, enqueter, faire le point, ou quand il demande une vraie recherche. Plus lent que web_search.",
      "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}},
     {"name": "heure_monde", "description": "L'heure qu'il est dans une ville du monde et son fuseau.",
      "parameters": {"type": "object", "properties": {"ville": {"type": "string"}}, "required": ["ville"]}},
@@ -335,11 +335,11 @@ TOOL_GROUPS = [
     (r"youtube\.com|youtu\.be|video|sous.?titre|resume cette|transcri", {"video_texte"}),
     (r"reglage|desactive|active\b|coupe|automatique|chaque nuit|chaque soir|bilan|rappel de rdv|menage auto", {"reglage"}),
     (r"actu|news|nouvelles|quoi de neuf|journal|infos? sur|presse", {"actu"}),
-    (r"approfond|recherche sur|renseigne|enquete|compare|etude|analyse complete|dossier sur", {"recherche_approfondie"}),
+    (r"approfond|recherche sur|vraie recherche|recherche (?:complete|poussee)|creuse|renseigne|enquete|compare|etude|analyse complete|dossier sur", {"recherche_approfondie"}),
     (r"quelle heure|heure a |heure en |fuseau|decalage horaire", {"heure_monde"}),
     (r"ferie|pont\b|jours? off", {"feries"}),
     (r"entretien|interview|prepar|recrut|fiche sur", {"prepare_entretien"}),
-    (r"voyage|billet|vol\b|vols\b|avion|train|hotel|reserv|courses|commande|livraison|conteste|facture|reclam|remboursement|demarche|panier|supermarche|carrefour|auchan", {"demarche"}),
+    (r"voyage|billet|vol\b|vols\b|avion|train|hotel|reserv|courses|commande|achet|achat|livraison|conteste|facture|reclam|remboursement|demarche|panier|supermarche|carrefour|auchan", {"demarche"}),
     (r"appelle|appel\b|telephone|telephoner|coup de fil", {"appel"}),
     (r"matin|briefing|resume du jour|chaque jour|reveil|habitude|appris|connais", {"morning_briefing", "habits"}),
 ]
@@ -354,4 +354,6 @@ def select_tools(text):
     for pattern, group in TOOL_GROUPS:
         if re.search(pattern, t):
             names |= group
+    if re.search(r"vraie recherche|recherche (?:complete|poussee)|approfond|creuse", t):
+        names.discard("web_search")                    # he asked for the pages to be read: the model otherwise stops at the snippets
     return [x for x in GROQ_TOOLS if x["function"]["name"] in names]

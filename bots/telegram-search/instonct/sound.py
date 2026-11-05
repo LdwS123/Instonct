@@ -15,18 +15,27 @@ from .texts import SILENT
 from .core import db, is_wa, log, scrub, send, wa_to
 from . import cast, music
 
+STT_RETRY_AFTER = 3
+
+
 def transcribe(audio):
     """Message vocal -> texte avec Whisper sur Groq (environ 1 s). None si impossible."""
-    try:
-        r = requests.post(f"{STT_BASE_URL}/audio/transcriptions", timeout=30,
-                          headers={"Authorization": f"Bearer {STT_API_KEY}"},
-                          data={"model": STT_MODEL, **({"language": STT_LANGUAGE} if STT_LANGUAGE else {})},
-                          files={"file": ("voice.ogg", audio, "audio/ogg")})
-        if r.status_code == 200:
-            return r.json().get("text", "").strip() or None
-        log.warning("speech-to-text code %s", r.status_code)
-    except requests.RequestException as e:
-        log.warning("whisper injoignable : %s", scrub(e))
+    for attempt in range(2):
+        try:
+            r = requests.post(f"{STT_BASE_URL}/audio/transcriptions", timeout=15,
+                              headers={"Authorization": f"Bearer {STT_API_KEY}"},
+                              data={"model": STT_MODEL, **({"language": STT_LANGUAGE} if STT_LANGUAGE else {})},
+                              files={"file": ("voice.ogg", audio, "audio/ogg")})
+            if r.status_code == 200:
+                text = r.json().get("text", "").strip()
+                return text if re.search(r"\w", text) else None   # on noise, Whisper answers "..."
+            log.warning("speech-to-text code %s", r.status_code)
+            if r.status_code != 429 or attempt:
+                return None
+            time.sleep(STT_RETRY_AFTER)                     # the free tier allows a few per minute: a short wait beats the much slower way round
+        except requests.RequestException as e:
+            log.warning("whisper injoignable : %s", scrub(e))
+            return None
     return None
 
 
@@ -68,19 +77,19 @@ def change_volume(delta):
 def quick_volume(t):
     """Ordres de volume simples (texte normalise) : 'monte le son', 'plus fort', 'volume 50', 'au max'..."""
     w = t.split()
-    if len(w) > 7 or not re.search(r"\b(son|volume|fort|bas|musique)\b", t) and not re.search(r"\b(monte|baisse|augmente|diminue)\b", t):
+    if len(w) > 7 or not re.search(r"\b(son|volume|fort|bas|musique)\b", t) and not re.search(r"\b(montes?|baisses?|augmente|diminue)\b", t):
         return None
-    if re.search(r"\b(monte|baisse|augmente|diminue|fort|bas)\b|doucement", t) or re.search(r"\b(volume|son)\b", t):
+    if re.search(r"\b(montes?|baisses?|augmente|diminue|fort|bas)\b|doucement", t) or re.search(r"\b(volume|son)\b", t):
         m = re.search(r"\b(\d{1,3})\b", t)
-        if m and re.search(r"\b(volume|son)\b", t) and not re.search(r"\b(monte|baisse|augmente|diminue)\b", t):
+        if m and re.search(r"\b(volume|son)\b", t) and not re.search(r"\b(montes?|baisses?|augmente|diminue)\b", t):
             set_volume(min(100, int(m.group(1))))
             return f"Volume regle a {min(100, int(m.group(1)))} %."
         if re.search(r"a fond|au max|maximum", t):
             return change_volume(100)
         step = 30 if "beaucoup" in t else 8 if re.search(r"un peu|legerement", t) else 15
-        if re.search(r"\b(baisse|diminue|moins fort|plus bas|doucement)\b|moins fort|plus bas", t):
+        if re.search(r"\b(baisses?|diminue|moins fort|plus bas|doucement)\b|moins fort|plus bas", t):
             return change_volume(-step)
-        if re.search(r"\b(monte|augmente|plus fort|plus haut)\b|plus fort|plus haut", t):
+        if re.search(r"\b(montes?|augmente|plus fort|plus haut)\b|plus fort|plus haut", t):
             return change_volume(step)
     return None
 

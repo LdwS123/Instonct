@@ -2,6 +2,7 @@
 
 import copy
 import re
+from urllib.parse import unquote, urlsplit
 import time
 from datetime import datetime
 
@@ -12,13 +13,16 @@ from .core import NET, db, log, norm, scrub
 from . import catalog, perf
 
 # ---------------------------------------------------------------- recherche + Gemini
+_AD_LINK = re.compile(r"/aclick\?|duckduckgo\.com/y\.js|googleadservices\.")
+
+
 def web_search(query, n=5, kind="text"):
     """Recherche DuckDuckGo (gratuite, sans cle). kind="news" pour l'actualite. Renvoie [] en cas d'echec."""
     try:
         from ddgs import DDGS
         if kind == "news":
             return [{**r, "href": r.get("url", "")} for r in (DDGS(timeout=6).news(query, max_results=n, region="fr-fr") or [])]
-        return DDGS(timeout=4).text(query, max_results=n, region="fr-fr") or []
+        return [r for r in (DDGS(timeout=4).text(query, max_results=n, region="fr-fr") or []) if not _AD_LINK.search(r.get("href", ""))]
     except Exception as e:
         log.warning("recherche web indisponible : %s", scrub(e))
         return []
@@ -87,9 +91,27 @@ def false_claim(answer, ran):
     return any(rx.search(said) and not (tools & ran) for rx, tools in CLAIMS)
 
 
+_LINK = re.compile(r"https?://[^\s<>\"')\]]+")
+_PRICE = re.compile(r"(\d[\d\s.,]*\d|\d)\s?(?:€|\$|euros?\b|dollars?\b)", re.I)
+
+
+def _number(text):
+    return re.sub(r"[\s.,]", "", text)
+
+
+def invented(answer, known):
+    """Deep links and prices in the answer that no tool result, nor the conversation, ever showed. A model writes these with full confidence, so plain code checks them."""
+    answer = answer or ""
+    seen = unquote(known)
+    numbers = {_number(n) for n in re.findall(r"\d[\d\s.,]*\d|\d", seen)}
+    links = [u.rstrip(".,;:!?*") for u in _LINK.findall(answer)]
+    return ([u for u in links if urlsplit(u).path.strip("/") and unquote(u) not in seen] +
+            [m.group(0).strip() for m in _PRICE.finditer(answer) if _number(m.group(1)) not in numbers])
+
+
 def clean_answer(text):
     """Enleve les restes de reflexion du modele (<think>...</think>, ou texte avant un </think> orphelin)."""
-    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
+    text = re.sub(r"<think>.*?</think>|【[^】]*】", "", text or "", flags=re.S)
     if "</think>" in text:
         text = text.rsplit("</think>", 1)[1]
     text = text.replace("<think>", "").strip()
@@ -161,7 +183,11 @@ CLAIMS = ((re.compile(r"rappel (est |a ete |bien )?(programm|prevu|cree|enregist
           (re.compile(r"j.ai envoye|(mail|message) (est |a ete |bien )?envoye", re.I), {"mail_send", "mail_reply", "run_command", "http_request"}),
           (re.compile(r"j.ai (bien )?(appele|telephone)|je viens (d.appeler|de telephoner)", re.I), set()),                       # no phone line is plugged in: this is never true
           (re.compile(r"j.ai (bien )?(paye|achete|commande)|je viens (de payer|d.acheter|de commander)|commande (est |a ete )?passee|paiement (est |a ete )?effectue", re.I), set()),   # paying is always the user's hand
+          (re.compile(r"(?:j.ai|je t.ai) (?:bien )?(?:ajoute|mis)\b.{0,80}\bpanier|(?:ajoute|mis) (?:a|dans) ton panier|(?:j.ai|je t.ai) (?:bien )?ouvert (?:la |le |une |un )?(?:page|site|lien)", re.I), {"browser"}),
           (re.compile(r"j.ai reserve|je viens de reserver|c.est (bien |tout )?reserve\b(?! aux?\b)|billet (est |a ete )?reserve|reservation (est |a ete )?confirmee", re.I), {"calendar_create"}))
+INVENTED = ("[Systeme] Ces liens ou prix de ta reponse ne viennent d'aucun resultat d'outil : %s. Tu les as probablement inventes. Va les chercher avec un outil, "
+            "ou reecris ta reponse sans eux en disant ce que tu n'as pas pu verifier. Si tu as calcule un montant, dis-le.")
+UNVERIFIED = "\n\n(Attention : je n'ai pas pu verifier ces liens ou ces prix : %s.)"
 FALSE_CLAIM = ("[Systeme] Tu viens d'annoncer une action alors que l'outil n'a pas ete appele dans ce tour. Appelle l'outil maintenant, "
                "ou corrige ta reponse et dis franchement que ce n'est pas fait.")
 

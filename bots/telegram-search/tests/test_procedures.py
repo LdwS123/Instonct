@@ -25,6 +25,15 @@ def test_a_wrong_date_is_refused_rather_than_shown_as_a_good_link():
     assert db.hlen(demarche.KEY) == 0
 
 
+def test_a_trip_without_a_destination_asks_for_it():
+    assert "arrivee" in start(type="voyage")["erreur"]
+    assert db.hlen(demarche.KEY) == 0
+
+
+def test_groceries_without_a_list_ask_for_it():
+    assert "produits" in start(type="courses")["erreur"]
+
+
 def test_groceries_give_one_link_per_product():
     out = start(type="courses", produits=["lait demi-ecreme", "pates"])
     assert set(out["liens"]) == {"lait demi-ecreme", "pates"}
@@ -33,7 +42,7 @@ def test_groceries_give_one_link_per_product():
 
 def test_every_kind_of_procedure_says_paying_stays_with_the_user():
     for kind in demarche.STEPS:
-        assert "ne paies jamais" in start(type=kind)["regle"]
+        assert "ne paies jamais" in start(type=kind, arrivee="Lyon", produits=["lait"])["regle"]
 
 
 def test_notes_are_kept_capped_and_the_dossier_survives():

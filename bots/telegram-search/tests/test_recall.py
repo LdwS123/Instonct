@@ -138,3 +138,11 @@ def test_a_plain_command_is_not_counted():
 def test_outside_an_answer_nothing_breaks():
     perf.add("modele", 1)
     assert perf.finish() is None
+
+
+def test_what_is_only_for_today_is_not_kept(monkeypatch):
+    chatlog.record(7, "Bonjour tout le monde", "")
+    fake_model(monkeypatch, [{"type": "info", "fait": "Avoir un entretien demain avec Paul"}, {"type": "info", "fait": "Cherche des informations sur une entreprise"},
+                             {"type": "projet", "fait": "Poster trois videos ce soir"}, {"type": "profil", "fait": "Travaille comme architecte"}])
+    assert memlearn.learn_once(7) == 1
+    assert facts() == [("profil", "Travaille comme architecte")]

@@ -12,7 +12,7 @@ from datetime import datetime
 from .optional import habits
 from .optional import tvremote
 from .optional import whatsapp
-from .config import MAX_PER_DAY, MAX_PER_MIN
+from .config import MAX_PER_DAY, MAX_PER_MIN, STT_API_KEY
 from .texts import AIDE, BLAGUES, SILENT
 from .core import db, fetch_file, is_wa, log, norm, scrub, send, tg, wa_to
 from . import brain, callbacks, commands, google, life, llm, media, music, pagewatch, perf, recall, health, reminders, remote_access, sound, television
@@ -210,12 +210,7 @@ def handle(msg):
             text = wake.group(1).strip()
         if re.fullmatch(r"https?://\S+", text):
             text = "Lis cette page et resume-la en 5 lignes maximum : " + text
-        if television.wants_remote(text):
-            television.send_remote(chat_id)
-            return
-        quick = music.quick_music(text)                      # ordres de musique simples : instantane, sans IA
-        if quick:
-            send(chat_id, quick)
+        if instant_order(chat_id, text):
             return
         if quota_exceeded(chat_id):
             return
@@ -228,6 +223,19 @@ def handle(msg):
                 send(chat_id, answer)
         else:
             sound.reply(chat_id, answer)
+
+
+def instant_order(chat_id, text):
+    """Orders that need no model, written or spoken: done at once, and the short answer is written. True if it was one."""
+    if television.wants_remote(text):
+        television.send_remote(chat_id)
+        return True
+    done = music.quick_music(text)
+    if not done:
+        return False
+    send(chat_id, done)
+    brain.remember(chat_id, text, done)                  # "et eteins-la" must still make sense afterwards
+    return True
 
 
 def quota_exceeded(chat_id):
@@ -273,7 +281,18 @@ def handle_voice(chat_id, voice):
     if not audio:
         send(chat_id, "Je n'ai pas pu recuperer ton message vocal.")
         return
-    heard, answer = brain.ask_voice(chat_id, audio, voice.get("mime_type") or "audio/ogg")
+    heard = None
+    if STT_API_KEY:
+        with perf.timed("ecoute"):
+            heard = sound.transcribe(audio)
+    if heard and instant_order(chat_id, heard):
+        return
+    routine = life.match_routine(heard) if heard else None
+    if routine:
+        life.note("routine", routine[0])
+        answer = brain.ask(chat_id, life.routine_prompt(*routine), oral=True)
+    else:
+        heard, answer = brain.ask_voice(chat_id, audio, voice.get("mime_type") or "audio/ogg", heard)
     # Regle simple : tu parles -> je reponds en vocal, rien d'autre. Si le vocal echoue, je reponds en texte.
     if answer == SILENT:
         return

@@ -174,21 +174,36 @@ RE_OUT_MAC = re.compile(_OUT + r"(?:mac|mac mini|ordinateur|ordi|haut parleurs?|
 RE_OUT_AUTO = re.compile(_OUT.replace("(?: sur| a| dans)", "(?: en| sur)") + r"(?:auto|automatique)|sortie (?:en )?auto(?:matique)?")
 
 
+_FILLER = (r"(?:jessica|steve|voila|euh|heu|bah|ben|bon|alors|du coup|en fait|ok|okay|hey|he|eh|oh|dis moi|dis|ecoute|frerot|frero|mon frere|mec|wesh|allez|vas y|va y|"
+           r"stp|svp|s il te plait|s il vous plait|please|merci|bref|maintenant|tout de suite|rapidement|vite)")
+_FILLER_START = re.compile(rf"^{_FILLER}\b\s*")
+_FILLER_END = re.compile(rf"\s*\b(?:{_FILLER}|la)$")
+_ASKING = re.compile(r"^(?:est ce que )?(?:tu peux|tu pourrais|tu veux bien|peux tu|pourrais tu|veux tu|je veux que tu|je voudrais que tu|j aimerais que tu|"
+                     r"il faut que tu|il faudrait que tu|faudrait que tu|tu vas|il faut)\b(?: me)?\s*")
+NOT_MUSIC = re.compile(r"\b(?:rappel|agenda|calendrier|mails?|emails?|messages?|taches?|todo|liste|recherche|notes?|alarme|reunion|rendez vous|rdv|fichier|lien|"
+                       r"hdmi|photo|image|code|commande|script|ecran|serveur|question|reponse|document|numero|adresse)\b")
+
+
+def order_words(text):
+    """What a person really orders, without punctuation, politeness and hesitations. Only the two ends are trimmed: "mets bon jovi" must keep its "bon"."""
+    t = " ".join(re.sub(r"[^\w\s]", " ", norm(text)).split())
+    while True:
+        cut = _FILLER_END.sub("", _ASKING.sub("", _FILLER_START.sub("", t))).strip()
+        if cut == t:
+            return t
+        t = cut
+
+
 def quick_music(text):
-    """Raccourci instantane (sans IA) pour les ordres de musique simples. Renvoie la reponse ou None."""
-    t = re.sub(r"\b(stp|svp|s il te plait|s il vous plait|merci|please|jessica)\b", "", norm(text))
-    t = re.sub(r"\s+", " ", t).strip()
+    """Raccourci instantane (sans IA) pour les ordres simples, ecrits ou dits : tele, son, musique. Renvoie la reponse ou None."""
+    t = order_words(text)
     if len(t.split()) > 12:
         return None
-    m = television.RE_TV_POWER.fullmatch(t)
-    if m:
-        return television.tv_power("on" if m.group(1).startswith(("all", "rall", "reveil")) else "off")
-    m = television.RE_TV_CHANNEL.fullmatch(t)
-    if m:
-        return television.tv_channel(m.group(1))
-    m = television.RE_TV_APP.fullmatch(t)
-    if m:
-        return television.tv_do("app:" + m.group(1).split()[0])
+    tv = [television.tv_order(t)]                        # the whole sentence first: "chaine d apres" holds a joining word
+    if not tv[0]:
+        tv = [television.tv_order(order_words(part)) for part in re.split(r"\b(?:et|puis|ensuite|apres)\b", t)]
+    if all(tv):                                          # "allume la tele et mets netflix" : in that order
+        return " ".join(order() for order in tv)
     if RE_OUT_TV.fullmatch(t):
         return set_output("tv")
     if RE_OUT_MAC.fullmatch(t):
@@ -202,9 +217,9 @@ def quick_music(text):
         return music_control("stop")
     if RE_PAUSE.fullmatch(t):
         return music_control("pause")
-    if RE_RESUME.fullmatch(t):
+    if RE_RESUME.fullmatch(t) and (t != "continue" or _music.get("paused")):      # "continue" alone is usually said to the bot, not to the music
         return music_control("resume")
-    m = RE_PLAY.fullmatch(t)
+    m = RE_PLAY.fullmatch(t) if not NOT_MUSIC.search(t) else None
     q = m.group(1).strip() if m else ""
     if len(q) >= 3 and q not in ("de", "pile ou face"):
         return music_play("hits musique populaire" if q in ("musique", "de la musique", "une musique") else q)

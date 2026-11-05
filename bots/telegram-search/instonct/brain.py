@@ -4,7 +4,7 @@ import base64
 import json
 import re
 
-from .config import ALL_MODELS, GEMINI_KEY, HISTORY_TTL, HISTORY_TURNS, STT_API_KEY
+from .config import ALL_MODELS, GEMINI_KEY, HISTORY_TTL, HISTORY_TURNS
 from .texts import SILENT
 from .core import db
 from . import catalog, chatlog, dispatch, guard, llm, perf, recall, sound
@@ -41,6 +41,9 @@ def _squeeze(messages):
                 return
 
 
+SEARCHES, MAX_SEARCHES = {"mail_search", "web_search", "mail_index", "chat_search"}, 6
+
+
 def agent_groq(chat_id, question, oral=False, taint=False):
     """Agent loop on the main provider (OpenAI-compatible API, Groq by default). Returns (text, links) ; text = None if it is unavailable."""
     history = _recent_history(chat_id)
@@ -50,6 +53,7 @@ def agent_groq(chat_id, question, oral=False, taint=False):
     toolset = [] if catalog.is_small_talk(question) and not taint else catalog.select_tools(context)
     said_before = "" if not toolset or taint else recall.past(chat_id, question, [h["content"] for h in history])
     messages = [{"role": "system", "content": catalog.build_system(oral, toolset, context) + said_before}] + history + [{"role": "user", "content": question}]
+    known, verified, searches = [m["content"] for m in messages], False, {}
     for _ in range(llm.MAX_STEPS):
         _squeeze(messages)
         resp = llm.llm_call(messages, question, oral, toolset=toolset)
@@ -68,7 +72,12 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 checked = True
                 messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": llm.FALSE_CLAIM}]
                 continue
-            return answer, links
+            unsure = llm.invented(answer, " ".join(known))
+            if unsure and not verified:
+                verified = True
+                messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": llm.INVENTED % ", ".join(unsure[:6])}]
+                continue
+            return answer + (llm.UNVERIFIED % ", ".join(unsure[:6]) if unsure else ""), links
         used_tools = True
         ran.update(c["function"]["name"] for c in calls)
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
@@ -80,12 +89,18 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 args = {}
             key = c["function"]["name"] + json.dumps(args, sort_keys=True)
             seen[key] = seen.get(key, 0) + 1
+            name = c["function"]["name"]
+            searches[name] = searches.get(name, 0) + (name in SEARCHES)
             if seen[key] > 2:                         # meme appel pour la 3e fois : il tourne en rond
                 out = {"erreur": "deja essaye plusieurs fois avec les memes parametres : change d'approche ou explique le blocage"}
+            elif searches[name] > MAX_SEARCHES:       # mots a peine changes : la reponse ne viendra plus, et chaque tour fait attendre l'utilisateur
+                out = {"erreur": "assez cherche : reponds avec ce que tu as, et dis clairement ce que tu n'as pas trouve"}
             else:
                 out = dispatch.run_tool(chat_id, c["function"]["name"], args, links)
             drafted = drafted or (c["function"]["name"] == "mail_send" and "statut" in out)
-            messages.append({"role": "tool", "tool_call_id": c["id"], "content": json.dumps(out, ensure_ascii=False)[:4000]})
+            shown = json.dumps(out, ensure_ascii=False)[:4000]
+            known.append(shown)
+            messages.append({"role": "tool", "tool_call_id": c["id"], "content": shown})
         if drafted:
             return SILENT, links
     messages.append({"role": "user", "content": "[Systeme] Limite d'etapes atteinte. En deux ou trois phrases : ce qui est fait, ce qui reste, et ce que tu proposes."})
@@ -156,13 +171,10 @@ def ask(chat_id, question, oral=False, taint=False):
     return answer
 
 
-def ask_voice(chat_id, audio, mime):
-    """Message vocal : Gemini ecoute, comprend, agit si besoin et repond (un seul passage)."""
-    if STT_API_KEY:
-        with perf.timed("ecoute"):
-            text = sound.transcribe(audio)
-        if text:
-            return text, ask(chat_id, text, oral=True)
+def ask_voice(chat_id, audio, mime, heard=None):
+    """Message vocal : ce qui a ete entendu passe par le chemin normal ; sinon Gemini ecoute lui-meme l'audio."""
+    if heard:
+        return heard, ask(chat_id, heard, oral=True)
     instruction = ("Voici un message vocal de l'utilisateur : fais ce qu'il demande, puis reponds-lui. Ta reponse finale suit ce "
                    "format strict : une ligne 'Q: ' avec la transcription exacte de ce qu'il a dit, puis une ligne 'R: ' avec ta reponse.")
     answer, links = agent(chat_id, [{"inline_data": {"mime_type": mime, "data": base64.b64encode(audio).decode()}},

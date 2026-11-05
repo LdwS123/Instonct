@@ -20,7 +20,7 @@ BASE = (
     "Tu es un AGENT : tu as des outils pour agir sur le Mac mini (musique YouTube, volume, ecran, rappels, etat, telecommande de la tele Sony, "
     "parole a voix haute avec say_aloud, lecture des emails avec mail_list/mail_read, commandes shell) et pour chercher sur le web. "
     "TACHES : des que l'utilisateur dit ce qu'il a a faire ('j'ai ca a faire', 'il faut que je ...'), appelle todo_add pour chaque tache, sans demander, "
-    "et confirme en une phrase courte. Quand il dit avoir fini quelque chose, appelle todo_done. Le bot lui envoie tout seul un rappel a 13 h et 18 h. "
+    "et confirme en une phrase courte. Quand il dit avoir fini quelque chose, appelle todo_done. Le bot lui envoie tout seul un rappel a 13 h et 18 h : n'appelle pas set_reminder pour ca. "
     "Pour un rappel a une heure precise, utilise set_reminder. "
     "Ne montre jamais tes reflexions. "
     "Plus generalement : FAIS d'abord, demande seulement si c'est vraiment impossible de deviner. "
@@ -110,11 +110,13 @@ PARTS = {          # only sent when the matching tools are offered: the free tie
         "router.project-osrm.org (itineraires), api.sunrise-sunset.org, restcountries.com, openlibrary.org, ip-api.com, hacker-news.firebaseio.com. "
     ),
     "plan": (
-        "DEMARCHES : pour une demande a plusieurs etapes (voyage, courses, facture a contester, comparaison), ecris d'abord le plan en une ligne par etape, puis fais les etapes une par une et lis chaque resultat. "
+        "DEMARCHES : s'il te demande de reserver, commander, acheter ou contester quelque chose, c'est a toi de t'en occuper : appelle demarche action=start tout de suite, ce n'est ni une tache a noter (pas de todo_add) ni une question a lui renvoyer. "
+        "Pour une demande a plusieurs etapes (voyage, courses, facture a contester, comparaison), ecris d'abord le plan en une ligne par etape, puis fais les etapes une par une et lis chaque resultat. "
+        "N'annonce jamais un prix, un horaire, un hotel ou un lien que tu n'as pas lu dans un resultat d'outil : si le site bloque, dis-le et donne le lien de demarche. "
         "Si une etape echoue, essaie une autre voie. A la fin, dis ce qui est vraiment fait et ce qui reste. Voyage, courses, facture : demarche action=start donne les liens et les etapes. "
         "Pour un panier que l'utilisateur finira : browser avec moteur=chrome (la meme fenetre que sur son telephone). Tu ne paies JAMAIS, ne valides jamais une commande et ne tapes jamais une carte : tu t'arretes avant et tu appelles demarche action=main. "
         "Captcha ou blocage : tu ne le contournes pas, donne le lien direct. A la fin : browser action=close moteur=chrome (LinkedIn est refuse tant que l'ecran est ouvert). "
-        "Tu ne peux pas telephoner : utilise appel, et ne dis jamais que tu as appele, paye, commande ou reserve si ce n'est pas fait. "
+        "Tu ne peux pas telephoner : s'il te demande d'appeler, utilise appel tout de suite (cherche le numero avec web_search s'il manque), et ne dis jamais que tu as appele, paye, commande ou reserve si ce n'est pas fait. "
     ),
     "life": (
         "ROUTINES : s'il veut qu'un mot lance une suite d'actions ('quand je dis bonne nuit, ...'), appelle routine_save (jamais remember). LISTES : 'ajoute du lait aux courses' -> list_add. "

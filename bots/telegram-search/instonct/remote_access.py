@@ -11,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from . import screen
 from .texts import SILENT
 from .core import db, log, norm, scrub, send
-from . import brain, handlers, sound
+from . import brain, handlers, music, sound
 
 SCREEN_SITES = {"linkedin": "https://www.linkedin.com/login", "indeed": "https://secure.indeed.com/auth", "gmail": "https://mail.google.com/",
                 "google": "https://accounts.google.com/", "welcome": "https://www.welcometothejungle.com/fr/signin", "france travail": "https://candidat.francetravail.fr/",
@@ -94,6 +94,9 @@ def start_siri_server():
                 chat = int(owner)
                 if handlers.quota_exceeded(chat):
                     return self._out(200, "Trop de questions pour le moment.")
+                done = music.quick_music(text)
+                if done:
+                    return self._out(200, done)
                 answer = brain.ask(chat, text, oral=True)
                 if answer == SILENT:
                     return self._out(200, "Le brouillon t'attend sur Telegram.")

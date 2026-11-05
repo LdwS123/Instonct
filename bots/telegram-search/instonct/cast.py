@@ -30,7 +30,8 @@ def cast_serve():
     if _cast_srv["on"]:
         return
     os.makedirs(CAST_DIR, exist_ok=True)
-    srv = ThreadingHTTPServer(("0.0.0.0", CAST_PORT), functools.partial(_Quiet, directory=CAST_DIR))
+    # Only the home network address: the Siri server holds the same port on the Tailscale address, and "every address" would collide with it.
+    srv = ThreadingHTTPServer((my_ip(), CAST_PORT), functools.partial(_Quiet, directory=CAST_DIR))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     _cast_srv["on"] = True
 

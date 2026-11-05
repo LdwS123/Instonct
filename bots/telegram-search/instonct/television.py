@@ -9,16 +9,58 @@ from .core import is_wa, log, norm, scrub, send, tg
 from . import cast
 
 # telecommande : "allume la tele", "eteins la tele", "ouvre youtube sur la tele", "telecommande"...
-RE_TV_POWER = re.compile(r"(?:jessica )?(?:(?:peux tu|tu peux|pourrais tu|est ce que tu peux|veux tu|il faut que tu|je veux que tu|vas y|va)\s+)?"
-                         r"(allume|allumer|eteins|eteint|eteindre|rallume|rallumer|reveille|reveiller)(?: moi)?(?: la| le)? ?(?:tele|television|tv)(?: maintenant| tout de suite| la)?")
-RE_TV_APP = re.compile(r"(?:jessica )?(?:ouvre|lance|mets|met|va sur)(?: moi)?(?: l| la| le)? ?(youtube|netflix|prime(?: video)?|disney(?: plus)?)"
-                       r"(?: sur| dans| de)?(?: la| le| l)? ?(?:tele|television|tv)")
-RE_TV_CHANNEL = re.compile(r"(?:jessica )?(?:mets|met|va sur|passe sur|mets moi)(?: la)? ?(?:chaine|tele|tv) (?:numero |n )?(\d{1,3})")
+_THE_TV = r"(?: moi| nous)?(?: la| le| ma| notre)? ?(?:tele|television|tv|t v)"
+_ON_TV = r"(?:allume|allumer|rallume|rallumer|reveille|reveiller|demarre|demarrer|ouvre|ouvrir|mets|met|mettre)"
+_OFF_TV = r"(?:eteins|eteint|eteindre|etein|et teins|etends|coupe|couper|ferme|fermer|arrete|arreter)"
+_NUMBER = r"\d{1,3}|une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix"
+_NUMBERS = {w: i for i, w in enumerate("un deux trois quatre cinq six sept huit neuf dix".split(), 1)} | {"une": 1}
+_GO = r"(?:(?:mets|met|mes|mais|mettre|passe|passer|va|aller|bascule|change|zappe)(?: moi)?(?: sur| a| en| la)* ?)?"
+RE_TV_ON = re.compile(_ON_TV + _THE_TV)
+RE_TV_OFF = re.compile(_OFF_TV + _THE_TV)
+RE_TV_APP = re.compile(r"(?:ouvre|ouvrir|lance|lancer|mets|met|mes|mais|mettre|va sur|aller sur|demarre|demarrer)(?: moi)?(?: l| la| le)? ?(?:amazon )?(youtube|netflix|prime(?: video)?|disney(?: plus)?)"
+                       r"(?: (?:sur|dans|de)(?: la| le| l)? ?(?:tele|television|tv))?")
+RE_TV_CHANNEL = re.compile(_GO + rf"(?:chaine|tele|tv) (?:numero |n )?({_NUMBER})")
+RE_TV_NEXT = re.compile(_GO + r"chaine (?:suivante|d apres)")
+RE_TV_PREVIOUS = re.compile(_GO + r"chaine (?:precedente|d avant)")
+RE_TV_HDMI = re.compile(_GO + rf"(?:source |entree |prise )?hdmi ?({_NUMBER})")
+RE_TV_MUTE = re.compile(r"(?:coupe le son de|mute|mets en sourdine|mets en muet)" + _THE_TV)
+RE_TV_PAUSE = re.compile(r"(?:mets )?(?:en )?pause (?:sur |de )?(?:la )?(?:tele|netflix|youtube)|(?:mets )?(?:la tele|netflix|youtube) en pause")
+RE_TV_LOUDER = re.compile(r"(?:montes?|augmente|mets plus fort)(?: le son| le volume)?(?: de| sur)? ?" + _THE_TV)
+RE_TV_QUIETER = re.compile(r"(?:baisses?|diminue|mets moins fort)(?: le son| le volume)?(?: de| sur)? ?" + _THE_TV)
 RE_TV_REMOTE = re.compile(r"(?:jessica |steve )?(?:ou est |donne[ -]moi |donne |affiche[ -]moi |affiche |ouvre |montre[ -]moi |montre |sors[ -]moi |sors |mets[ -]moi |mets )?(?:la |ma |le )?(?:tele ?commande|remote)(?: virtuelle)?(?: ici| dans le chat| sur telegram)*")
 
 
 RE_REMOTE_WORD = re.compile(r"\b(?:tele ?commande|remote)\b")
 RE_NOT_REMOTE = re.compile(r"musique|chanson|son\b|volume|joue|playlist|explique|histoire|pourquoi|comment|prix|acheter|pile|marche pas|casse")
+
+
+def _done(result, said):
+    """tv_do says "OK" for a key press: the person needs to read what happened."""
+    return said if result == "OK" else result
+
+
+def tv_order(words):
+    """A simple order for the TV, from words already cleaned by music.order_words. Returns the function that does it, or None."""
+    if RE_TV_ON.fullmatch(words):
+        return lambda: tv_power("on")
+    if RE_TV_OFF.fullmatch(words):
+        return lambda: tv_power("off")
+    if m := RE_TV_APP.fullmatch(words):
+        return lambda: tv_do("app:" + m.group(1).split()[0])
+    if m := RE_TV_CHANNEL.fullmatch(words):
+        return lambda: tv_channel(_NUMBERS.get(m.group(1), m.group(1)))
+    if m := RE_TV_HDMI.fullmatch(words):
+        number = _NUMBERS.get(m.group(1), m.group(1))
+        return (lambda: _done(tv_do(f"hdmi{number}"), f"Je passe sur HDMI {number}.")) if str(number) in ("1", "2", "3") else None
+    if RE_TV_LOUDER.fullmatch(words):
+        return lambda: _done(tv_do("volume_up", times=3), "Je monte le son de la tele.")
+    if RE_TV_QUIETER.fullmatch(words):
+        return lambda: _done(tv_do("volume_down", times=3), "Je baisse le son de la tele.")
+    for rx, key, said in ((RE_TV_NEXT, "ch_up", "Chaine suivante."), (RE_TV_PREVIOUS, "ch_down", "Chaine precedente."),
+                          (RE_TV_MUTE, "mute", "Son de la tele coupe ou remis."), (RE_TV_PAUSE, "play_pause", "Pause ou lecture sur la tele.")):
+        if rx.fullmatch(words):
+            return lambda key=key, said=said: _done(tv_do(key), said)
+    return None
 
 
 def wants_remote(text):

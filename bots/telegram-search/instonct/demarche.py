@@ -23,7 +23,7 @@ STEPS = {
                "Donne une recommandation claire et les liens", "Pour reserver : ouvre la page choisie, remplis ce que tu sais, arrete-toi avant le paiement, puis action=main"],
     "courses": ["Lis sa liste (list_show) si les produits ne sont pas donnes", "Ouvre le site avec browser moteur=chrome et ajoute les produits au panier un par un",
                 "Si le site bloque : donne les liens directs par produit", "Arrete-toi avant le paiement, dis le total du panier, puis action=main"],
-    "facture": ["Retrouve la facture (mail_search, puis mail_read)", "Note le montant, la date, le numero et ce qui ne va pas", "Redige la reclamation (make_document si un fichier est utile)",
+    "facture": ["Retrouve la facture (une ou deux mail_search, puis mail_read). Pas dans les mails : continue avec ce qu'il t'a dit et demande ce qui manque (fournisseur, date, numero)", "Note le montant, la date, le numero et ce qui ne va pas", "Redige tout de suite la reclamation (make_document si un fichier est utile)",
                 "Montre-lui le texte. L'envoi passe par mail_send, avec son Oui", "Mets un rappel de relance dans 14 jours (set_reminder). Rappelle que ce n'est pas un conseil juridique"],
     "autre": ["Ecris le plan en une ligne par etape", "Fais les etapes une par une, note ce que tu trouves avec action=note", "Ce que seul lui peut faire (connexion, paiement, signature) : action=main"],
 }
@@ -107,13 +107,17 @@ def _demarche(chat_id, args, links):
         goal = str(args.get("objectif") or "").strip()[:300]
         if not goal:
             return {"erreur": "dis l'objectif de la demarche"}
+        if kind == "voyage" and not str(args.get("arrivee") or "").strip():
+            return {"erreur": "remplis arrivee avec la ville ou il va (pour un hotel, elle suffit), et depart, date, retour s'il les a dits : ce sont eux qui font les liens"}
+        if kind == "courses" and not args.get("produits"):
+            return {"erreur": "remplis produits avec la liste de ce qu'il veut, par exemple [\"lait\", \"pates\"] : ce sont eux qui font les liens"}
         try:
             found = _links(kind, args)
         except ValueError:
             return {"erreur": "date a donner au format AAAA-MM-JJ"}
         item = {"id": uuid.uuid4().hex[:6], "type": kind, "objectif": goal, "cree": time.time(), "etat": "en cours", "notes": [], "externe": bool(links)}
         _save(item)
-        return {"id": item["id"], "liens": found, "etapes": STEPS[kind], "regle": "Tu ne paies jamais et ne valides jamais de commande. Page de cookies : refuse ce qui n'est pas essentiel. Le lien marche aussi sur son telephone."}
+        return {"id": item["id"], "liens": found, "etapes": STEPS[kind], "regle": "Tu ne paies jamais et ne valides jamais de commande. Page de cookies : refuse ce qui n'est pas essentiel. Le lien marche aussi sur son telephone. Tout ceci est pour toi : ne parle jamais d'action, d'outil ou de 'main' a l'utilisateur, dis simplement que tu lui passes l'ecran."}
     item = _load(args.get("id"))
     if not item:
         return {"erreur": "demarche introuvable, regarde action=list"}
