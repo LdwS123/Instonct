@@ -135,11 +135,11 @@ def start(minutes=15, url="https://www.linkedin.com/login"):
         return p
 
     try:
-        run(["Xvfb", DISPLAY, "-screen", "0", "1280x800x24", "-nolisten", "tcp"])
+        run(["Xvfb", DISPLAY, "-screen", "0", "720x1300x24", "-nolisten", "tcp"])
         time.sleep(1.2)
         run(["openbox"])
         run([chrome, "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", f"--user-data-dir={PROFILE}", "--window-position=0,0",
-             "--window-size=1280,800", "--no-first-run", "--no-default-browser-check", "--disable-features=Translate", url])
+             "--window-size=720,1300", "--test-type", "--no-first-run", "--no-default-browser-check", "--disable-features=Translate", url])
         run(["x11vnc", "-display", DISPLAY, "-localhost", "-rfbport", str(VNC_PORT), "-rfbauth", pwfile, "-forever", "-shared", "-noxdamage", "-quiet"])
         time.sleep(1.0)
         run(["websockify", "--web", novnc, f"{ip}:{WEB_PORT}", f"localhost:{VNC_PORT}"])

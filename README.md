@@ -43,6 +43,11 @@ almost anything: a Raspberry Pi, an old laptop, a cheap VPS.
 | **Mail** | "Any important mail today?", "Reply to Paul, say I'm in." Sends only after you tap **Yes**. |
 | **Calendar** | "Put dentist on Thursday at 3pm", "Add a Google Meet with Marie". Warns about conflicts. |
 | **Browser** | "Go to news.ycombinator.com and give me a CSV of the top 30 titles", "Log me in to my gym site". |
+| **Mail triage** | Reads the text of each mail (no quota burned on ads): flags **rejections, interviews and offers**, hides newsletters. "Delete my rejections" reads the bodies, keeps interview and acceptance mails, and trashes (recoverably) only real rejections. |
+| **Contacts** | "Write to Arslane": finds the address by itself in your received and sent mail, shows the draft with the address, sends only after **Yes**. Asks only if several people match. |
+| **Remote screen** | `/connexion linkedin`: opens a temporary browser of the home server on your phone (noVNC over **Tailscale only**, random password, auto-closes) so you log in to LinkedIn, Instagram... **yourself**. The bot never sees a password; logins stay in the browser profile. |
+| **Hey Siri, Steve** | `/siri`: an iPhone Shortcut named *Steve* sends what you say to the bot (Tailscale-only endpoint with a secret URL) and Siri reads the answer aloud, even with the phone locked. Starting a message with "Steve, ..." in chat also makes it answer by voice. |
+| **Personal tools** | Tracker for applications and follow-ups (with automatic nudges), expenses, birthdays and key dates, a notebook, a safe calculator and unit converter, and the text of a YouTube video. No AI call needed. |
 | **Watching** | "Tell me when this page says *in stock*." Checks every 10+ minutes, pings only on change. |
 | **Memory** | Remembers your preferences for good, and learns when you correct it. |
 | **Learns your habits** | Counts (no AI call, nothing leaves the server) what you ask and when. Answers adapt to it, and when you do the same safe thing at the same hour on 4+ days (music, weather, agenda, mail, news, tasks) it **offers** to do it by itself every day, with **Yes / No** buttons. Never the TV. `/habitudes` shows what it learned, `/habitudes effacer` wipes it. |
