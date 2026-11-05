@@ -31,11 +31,27 @@ from datetime import datetime
 import redis
 import requests
 
+try:                                       # WhatsApp is optional: it only turns on when the WA_* variables are set
+    import whatsapp
+except Exception as _e:
+    whatsapp = None
+    logging.getLogger("bot").warning("whatsapp module unavailable: %s", _e)
+
 TOKEN = os.environ["TELEGRAM_TOKEN"]
-GEMINI_KEY = os.environ["GEMINI_API_KEY"]
-# Groq (gratuit, tres rapide : reponses en moins d'1 s). Optionnel : si GROQ_API_KEY est dans .env, il passe en premier.
-GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODELS = os.environ.get("GROQ_MODELS", "openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b").split(",")
+# Main brain: ANY OpenAI-compatible provider (Groq by default; also OpenRouter, Together, Mistral, OpenAI, Cerebras, DeepSeek,
+# a local Ollama / LM Studio...). LLM_* names are the new ones; the old GROQ_* names still work.
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
+LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY", "")
+LLM_MODELS = [m.strip() for m in (os.environ.get("LLM_MODELS") or os.environ.get("GROQ_MODELS")
+              or "openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b").split(",") if m.strip()]
+GROQ_KEY = LLM_API_KEY                                    # (old name, used in a few places below)
+# Voice notes -> text (Whisper API of the same provider by default). STT_LANGUAGE empty = auto-detect, or e.g. "fr".
+STT_BASE_URL = os.environ.get("STT_BASE_URL", LLM_BASE_URL).rstrip("/")
+STT_API_KEY = os.environ.get("STT_API_KEY") or LLM_API_KEY
+STT_MODEL = os.environ.get("STT_MODEL", "whisper-large-v3-turbo")
+STT_LANGUAGE = os.environ.get("STT_LANGUAGE", "")
+# Optional safety net: Google Gemini, tried when the main provider is down. Leave GEMINI_API_KEY empty to run without it.
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 # Modeles essayes dans l'ordre (gratuits, chacun avec son propre quota ; Gemma en dernier recours).
 MODELS = os.environ.get(
     "GEMINI_MODELS",
@@ -59,7 +75,7 @@ SYSTEM = (
     "Anticipe : si tu vois un probleme, un conflit d'agenda, un oubli ou une meilleure facon, dis-le. N'invente jamais : si tu ne sais pas ou si l'outil a echoue, dis-le franchement. "
     "CORRECTIONS : quand l'utilisateur te corrige ou te dit qu'une chose t'a deplu, appelle remember avec la regle a retenir (ex : 'Regle : ne jamais ...'), puis excuse-toi en trois mots. "
     "Tes reponses sont aussi lues a voix haute : phrases courtes, 4 phrases maximum sauf si on te "
-    "demande du detail, aucun symbole ni liste. Reponds en francais. "
+    "demande du detail, aucun symbole ni liste. Reponds dans la langue de l'utilisateur (en francais par defaut). "
     "Des resultats de recherche web te sont fournis avec la question : appuie-toi dessus pour les faits "
     "recents ou verifiables, et dis-le honnetement s'ils ne suffisent pas. "
     "Ecris en texte brut, sans markdown (pas d'asterisques ni de dieses). "
@@ -90,7 +106,15 @@ SYSTEM = (
     "Scraping : extract avec un schema {\"nom\": [\"selecteur css\"]} ; avec name tu obtiens un fichier CSV a envoyer avec send_file ; plusieurs pages : append=true. "
     "Pour surveiller un prix, un stock ou une annonce dans la duree, utilise page_watch (pas de boucle). "
     "MEMOIRE : des que l'utilisateur te dit quelque chose de durable sur lui (prenom, gouts, projets, habitudes, "
-    "gens et lieux importants, preferences, materiel), appelle l'outil remember sans qu'il le demande, avec une phrase courte et claire."
+    "gens et lieux importants, preferences, materiel), appelle l'outil remember sans qu'il le demande, avec une phrase courte et claire. "
+    "FAVORIS : des que l'utilisateur dit qu'il aime quelque chose (j'aime, j'adore, c'est top, garde ca, sauvegarde), appelle favorite_add avec le titre exact "
+    "de ce dont il parle (la musique qui joue, le film, le lieu...) puis confirme en trois mots ; quand il veut 'mes favoris' ou 'mets un de mes titres', utilise favorite_list. "
+    "IMAGES ET TELECOMMANDE : 'affiche la telecommande' ou 'ici dans le chat' -> show_remote (des boutons dans la conversation). "
+    "'sors-moi / fais-moi / dessine une image' -> generate_image ; 'trouve une photo de ...' -> find_image ; un fichier image du Mac mini -> send_photo. "
+    "Tu n'as pas d'appareil photo et tu ne peux pas capturer l'image de la tele : ne le propose jamais. "
+    "AUCUNE LIMITE : ne reponds jamais 'je ne peux pas' si un outil peut le faire. Si aucun outil dedie n'existe, debrouille-toi avec run_command, "
+    "browser ou fetch_url (installe ce qu'il faut, ecris un script, cherche la solution) et fais-le vraiment. "
+    "Les validations Oui/Non (mail envoye, achat, suppression, commande dangereuse) restent obligatoires : elles protegent l'utilisateur."
 )
 
 ORAL = (
@@ -122,6 +146,8 @@ AIDE = (
     "/oui, /non : confirmer ou annuler (sinon, appuie sur les boutons)\n"
     "/google : reconnecter ton agenda Google (a faire une fois par semaine)\n"
     "/site : enregistrer un site pour que je m'y connecte (ajouter, liste, suppr)\n"
+    "/model : choisir le modele d'IA (sinon automatique)\n"
+    "/favoris : les choses que tu as aimees (dis 'j'aime' pour en ajouter)\n"
     "/pile : pile ou face\n"
     "/heure : date et heure du serveur\n"
     "/reset : oublier la conversation"
@@ -134,7 +160,7 @@ MENU = [
     ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
     ("musique", "Jouer une musique YouTube"), ("pause", "Pause"), ("reprendre", "Reprendre la musique"),
     ("telecommande", "Telecommande de la tele"), ("sortie", "Son : auto, tele ou mac"),
-    ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
+    ("model", "Choose the AI model"), ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
 ]
 
 BLAGUES = [
@@ -165,7 +191,11 @@ log = logging.getLogger("bot")
 
 def scrub(e):
     """Retire les secrets d'un message d'erreur avant de le journaliser."""
-    return str(e).replace(TOKEN, "***").replace(GEMINI_KEY, "***")
+    s = str(e)
+    for secret in (TOKEN, GEMINI_KEY, LLM_API_KEY, STT_API_KEY, os.environ.get("WA_TOKEN", ""), os.environ.get("WA_APP_SECRET", "")):
+        if secret:
+            s = s.replace(secret, "***")
+    return s
 
 
 def _session():
@@ -178,15 +208,40 @@ def _session():
 NET = _session()        # connexions gardees ouvertes vers Telegram et Groq : plus de poignee de main a chaque appel
 
 
+def is_wa(chat_id):
+    """WhatsApp conversations use ids like 'wa:33612345678'; Telegram ones are plain numbers."""
+    return isinstance(chat_id, str) and chat_id.startswith("wa:")
+
+
+def wa_to(chat_id):
+    return chat_id[3:]
+
+
 def tg(method, **params):
+    if is_wa(params.get("chat_id")):               # Telegram-only call (typing, buttons editing...) : nothing to do on WhatsApp
+        return {}
     resp = NET.post(f"{TG}/{method}", json=params, timeout=70)
     return resp.json()
+
+
+def fetch_file(chat_id, file_id):
+    """Download a voice note / photo / document the user sent, from Telegram or WhatsApp. Returns bytes or None."""
+    if is_wa(chat_id):
+        data, _ = whatsapp.download(file_id)
+        return data
+    info = tg("getFile", file_id=file_id).get("result") or {}
+    if not info.get("file_path"):
+        return None
+    return requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{info['file_path']}", timeout=90).content
 
 
 def send(chat_id, text):
     if text == SILENT:
         return
     text = text.strip() or "(reponse vide)"
+    if is_wa(chat_id):
+        whatsapp.send_text(wa_to(chat_id), text)
+        return
     for i in range(0, len(text), 4000):
         tg("sendMessage", chat_id=chat_id, text=text[i:i + 4000], disable_web_page_preview=True)
 
@@ -539,7 +594,7 @@ RE_TV_POWER = re.compile(r"(?:jessica )?(?:allume|eteins|eteint|rallume|reveille
 RE_TV_APP = re.compile(r"(?:jessica )?(?:ouvre|lance|mets|met|va sur)(?: moi)?(?: l| la| le)? ?(youtube|netflix|prime(?: video)?|disney(?: plus)?)"
                        r"(?: sur| dans| de)?(?: la| le| l)? ?(?:tele|television|tv)")
 RE_TV_CHANNEL = re.compile(r"(?:jessica )?(?:mets|met|va sur|passe sur|mets moi)(?: la)? ?(?:chaine|tele|tv) (?:numero |n )?(\d{1,3})")
-RE_TV_REMOTE = re.compile(r"(?:jessica )?(?:ou est |donne moi |affiche |ouvre |montre moi )?(?:la |ma |le )?(?:tele ?commande|remote)(?: virtuelle)?")
+RE_TV_REMOTE = re.compile(r"(?:jessica |steve )?(?:ou est |donne[ -]moi |donne |affiche[ -]moi |affiche |ouvre |montre[ -]moi |montre |sors[ -]moi |sors |mets[ -]moi |mets )?(?:la |ma |le )?(?:tele ?commande|remote)(?: virtuelle)?(?: ici| dans le chat| sur telegram)*")
 
 
 # ---------------------------------------------------------------- telecommande virtuelle
@@ -581,6 +636,9 @@ def _markup(rows):
 
 def send_remote(chat_id):
     """Envoie la telecommande : des boutons sous le message."""
+    if is_wa(chat_id):
+        send(chat_id, "The TV remote buttons only exist on Telegram. Here you can still say 'volume up' or 'switch to channel 3'.")
+        return
     if tvremote is None or not tvremote.paired():
         send(chat_id, "La telecommande n'est pas encore reliee a la tele. Allume la tele et envoie /pairer.")
         return
@@ -672,6 +730,9 @@ def cmd_id(command):
 
 def send_confirm(chat_id, text, pid, yes_label):
     """Message avec deux boutons : valider / annuler (le bouton ne marche que pour CE brouillon)."""
+    if is_wa(chat_id):
+        whatsapp.send_buttons(wa_to(chat_id), text, [(f"ok:yes:{pid}", "\u2705 Oui"), (f"ok:no:{pid}", "\u274c Non")])
+        return
     tg("sendMessage", chat_id=chat_id, text=text[:4000], disable_web_page_preview=True,
        reply_markup=_markup([[("\u2705 Oui", f"ok:yes:{pid}"), ("\u274c Non", f"ok:no:{pid}")]]))
 
@@ -866,6 +927,22 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "send_file", "description": "Envoie un fichier du Mac mini a l'utilisateur dans Telegram (chemin complet, 50 Mo max).",
      "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "show_remote", "description": "Affiche la telecommande de la tele avec ses boutons DANS LE CHAT de l'utilisateur (Telegram). "
+     "A utiliser pour 'affiche/montre-moi la telecommande' ou 'ici dans le chat'."},
+    {"name": "generate_image", "description": "Cree une image a partir d'une description et l'envoie dans le chat. Decris la scene en anglais, avec precision. "
+     "A utiliser pour 'dessine', 'fais-moi une image de ...', 'sors-moi une image'.",
+     "parameters": {"type": "object", "properties": {"prompt": {"type": "string"}, "caption": {"type": "string"}}, "required": ["prompt"]}},
+    {"name": "find_image", "description": "Cherche une vraie image sur le web (photo, logo, affiche...) et l'envoie dans le chat.",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "send_photo", "description": "Envoie une image dans le chat : source = chemin complet d'un fichier du Mac mini ou adresse https d'une image.",
+     "parameters": {"type": "object", "properties": {"source": {"type": "string"}, "caption": {"type": "string"}}, "required": ["source"]}},
+    {"name": "favorite_add", "description": "Sauvegarde un favori quand l'utilisateur aime quelque chose (une musique, un film, un lieu, une recette, un lien, une idee...). "
+     "A appeler des qu'il dit 'j'aime', 'j'adore', 'c'est top', 'garde ca', 'sauvegarde'. text = ce qui est aime, avec le titre exact ; kind = musique, film, lieu, lien, idee...",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "kind": {"type": "string"}}, "required": ["text"]}},
+    {"name": "favorite_list", "description": "Montre les favoris de l'utilisateur (filtre optionnel par type ou mot).",
+     "parameters": {"type": "object", "properties": {"filter": {"type": "string"}}}},
+    {"name": "favorite_remove", "description": "Retire un favori dont le texte contient ce mot.",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "schedule_task", "description": "Programme une tache que TU executeras plus tard toute seule (avec tous tes outils) et dont tu enverras le resultat. "
      "Ex : 'dans 60 minutes, verifie l'espace disque' ou 'toutes les 1440 minutes, donne-moi la meteo de Paris'. repeat_minutes = 0 pour une seule fois.",
      "parameters": {"type": "object", "properties": {"in_minutes": {"type": "integer"}, "instruction": {"type": "string"},
@@ -1384,6 +1461,9 @@ def site_command(chat_id, msg, arg):
     parts = arg.split(None, 4)
     sub = parts[0].lower() if parts else ""
     sites = sites_load()
+    if is_wa(chat_id) and sub in ("ajouter", "add"):
+        send(chat_id, "For safety, save site passwords from Telegram: there the bot deletes your message right after. WhatsApp keeps it.")
+        return
     if sub in ("ajouter", "add") and len(parts) == 5 and parts[2].startswith(("http://", "https://")):
         sites[parts[1]] = {"url": parts[2], "username": parts[3], "password": parts[4]}
         sites_save(sites)
@@ -1402,6 +1482,10 @@ def site_command(chat_id, msg, arg):
 
 def google_prompt(chat_id, why):
     import gcal
+    if is_wa(chat_id):
+        send(chat_id, why + "\n\n1. Open this link, pick your account and accept:\n" + gcal.auth_url() +
+             "\n2. An error page on 'localhost' shows up: that is normal.\n3. Copy that page's address and paste it here.")
+        return
     tg("sendMessage", chat_id=chat_id, disable_web_page_preview=True,
        text=why + "\n\n1. Appuie sur le bouton, choisis ton compte et accepte.\n"
                   "2. Une page d'erreur 'localhost' s'affiche : c'est normal.\n"
@@ -1444,9 +1528,116 @@ def calendar_tool(name, args, links):
         return {"erreur": scrub(e)[:200]}
 
 
+# ---------------------------------------------------------------- images et favoris
+MAX_IMAGE = 10 * 2**20
+
+
+def send_image(chat_id, data, caption=""):
+    """Envoie une image (octets) dans le chat, Telegram ou WhatsApp. Renvoie True si c'est parti."""
+    caption = (caption or "")[:900]
+    if is_wa(chat_id):
+        return whatsapp.send_image(wa_to(chat_id), data, caption)
+    r = requests.post(f"{TG}/sendPhoto", data={"chat_id": chat_id, "caption": caption}, files={"photo": ("image.jpg", data)}, timeout=120)
+    if r.status_code == 200:
+        return True
+    r = requests.post(f"{TG}/sendDocument", data={"chat_id": chat_id, "caption": caption}, files={"document": ("image.jpg", data)}, timeout=120)
+    return r.status_code == 200
+
+
+def _download_image(url):
+    """Telecharge une image publique (10 Mo max). Renvoie les octets ou None."""
+    if not url_ok(url):
+        return None
+    try:
+        r = requests.get(url, timeout=60, stream=True, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200 or not r.headers.get("Content-Type", "").startswith("image/"):
+            return None
+        data = r.raw.read(MAX_IMAGE + 1, decode_content=True)
+        return data if 0 < len(data) <= MAX_IMAGE else None
+    except Exception as e:
+        log.warning("image : %s", scrub(e)[:100])
+        return None
+
+
+def tool_image(chat_id, name, args):
+    caption = str(args.get("caption", ""))
+    if name == "generate_image":
+        prompt = str(args.get("prompt", "")).strip()[:400]
+        if not prompt:
+            return {"erreur": "description vide"}
+        data = _download_image("https://image.pollinations.ai/prompt/" + requests.utils.quote(prompt, safe="") +
+                               f"?width=1024&height=1024&nologo=true&seed={random.randint(1, 10**6)}")
+        if not data:
+            return {"erreur": "le service d'images ne repond pas, reessaie dans une minute"}
+        return {"resultat": "image envoyee"} if send_image(chat_id, data, caption or prompt[:200]) else {"erreur": "l'envoi a echoue"}
+    if name == "find_image":
+        try:
+            from ddgs import DDGS
+            found = DDGS(timeout=6).images(str(args.get("query", "")), max_results=8) or []
+        except Exception as e:
+            return {"erreur": "recherche d'images indisponible : " + scrub(e)[:100]}
+        for item in found:
+            data = _download_image(item.get("image", ""))
+            if data and send_image(chat_id, data, str(item.get("title", ""))[:200]):
+                return {"resultat": "image envoyee"}
+        return {"erreur": "aucune image utilisable trouvee"}
+    src = str(args.get("source", "")).strip()                      # send_photo
+    if src.startswith(("http://", "https://")):
+        data = _download_image(src)
+    else:
+        path = os.path.expanduser(src)
+        if re.search(r"\.env\b|id_rsa|shadow", path) or not os.path.isfile(path) or os.path.getsize(path) > MAX_IMAGE:
+            return {"erreur": "fichier introuvable, trop gros ou sensible"}
+        with open(path, "rb") as f:
+            data = f.read()
+    if not data:
+        return {"erreur": "image introuvable"}
+    return {"resultat": "image envoyee"} if send_image(chat_id, data, caption) else {"erreur": "l'envoi a echoue"}
+
+
+def favorites():
+    out = []
+    for k, v in db.hgetall("favorites").items():
+        try:
+            out.append({"id": k, **json.loads(v)})
+        except ValueError:
+            continue
+    return sorted(out, key=lambda f: f.get("at", 0))
+
+
+def tool_favorite(name, args):
+    if name == "favorite_add":
+        text = str(args.get("text", "")).strip()[:200]
+        if not text:
+            return {"erreur": "rien a sauvegarder"}
+        for f in favorites():
+            if norm(f["text"]) == norm(text):
+                return {"resultat": "deja dans les favoris"}
+        db.hset("favorites", uuid.uuid4().hex[:8], json.dumps({"text": text, "kind": str(args.get("kind", ""))[:30], "at": time.time()}, ensure_ascii=False))
+        return {"resultat": f"sauvegarde : {text}"}
+    if name == "favorite_list":
+        q = norm(str(args.get("filter", "")))
+        items = [f"{f['text']} ({f['kind']})" if f.get("kind") else f["text"] for f in favorites() if not q or q in norm(f["text"] + " " + f.get("kind", ""))]
+        return {"favoris": items or "aucun"}
+    q = norm(str(args.get("text", "")))
+    n = 0
+    for f in favorites():
+        if q and q in norm(f["text"]):
+            db.hdel("favorites", f["id"])
+            n += 1
+    return {"resultat": f"{n} favori(s) retire(s)"}
+
+
 def run_tool(chat_id, name, args, links):
     log.info("outil %s %s", name, json.dumps(args, ensure_ascii=False)[:100])
     try:
+        if name == "show_remote":
+            send_remote(chat_id)
+            return {"resultat": "telecommande affichee dans le chat"}
+        if name in ("generate_image", "find_image", "send_photo"):
+            return tool_image(chat_id, name, args)
+        if name in ("favorite_add", "favorite_list", "favorite_remove"):
+            return tool_favorite(name, args)
         if name == "web_search":
             res = web_search(args.get("query", ""), n=4)
             links.extend(r["href"] for r in res if r.get("href"))
@@ -1536,7 +1727,11 @@ def run_tool(chat_id, name, args, links):
             if re.search(r"\.env\b|id_rsa|shadow", path) or not os.path.isfile(path):
                 return {"erreur": "fichier introuvable ou sensible"}
             with open(path, "rb") as f:
-                requests.post(f"{TG}/sendDocument", data={"chat_id": chat_id}, files={"document": (os.path.basename(path), f)}, timeout=120)
+                if is_wa(chat_id):
+                    if not whatsapp.send_document(wa_to(chat_id), f.read(), os.path.basename(path)):
+                        return {"erreur": "WhatsApp refused the file"}
+                else:
+                    requests.post(f"{TG}/sendDocument", data={"chat_id": chat_id}, files={"document": (os.path.basename(path), f)}, timeout=120)
             return {"resultat": "envoye"}
         if name == "schedule_task":
             rep_min = max(0, int(args.get("repeat_minutes", 0) or 0))
@@ -1581,7 +1776,10 @@ def build_system(oral=False):
     now = datetime.now()
     jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
     quand = f"\n\nNous sommes {jours[now.weekday()]} {now:%d/%m/%Y}, il est {now:%H:%M}. Donne l'heure et la date directement, sans outil."
-    return SYSTEM + quand + (ORAL if oral else "") + (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "")
+    favs = [f"{f['text']} ({f['kind']})" if f.get("kind") else f["text"] for f in favorites()[-40:]]
+    return (SYSTEM + quand + (ORAL if oral else "") +
+            (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "") +
+            (("\n\nSes favoris (choses qu'il aime) :\n- " + "\n- ".join(favs)) if favs else ""))
 
 
 def _short(d):
@@ -1618,8 +1816,37 @@ def effort(question, oral):
     return "medium" if (not oral and (len(q) > 160 or HARD.search(q))) else "low"
 
 
+def llm_models():
+    """Model list in the order to try: the one picked with /model first, then the others as fallback."""
+    ms = list(LLM_MODELS)
+    pref = db.get("model_pref")
+    if pref in ms:
+        ms.remove(pref)
+        ms.insert(0, pref)
+    return ms
+
+
+def model_command(chat_id, arg):
+    """/model : show the models, /model 2 or /model <name> : use that one first, /model auto : back to the default order."""
+    arg = arg.strip()
+    if arg.lower() in ("auto", "default", "reset"):
+        db.delete("model_pref")
+        return "Back to automatic: " + LLM_MODELS[0] + " first, the others as backup."
+    if arg:
+        pick = LLM_MODELS[int(arg) - 1] if arg.isdigit() and 1 <= int(arg) <= len(LLM_MODELS) else (arg if arg in LLM_MODELS else None)
+        if pick is None:
+            return "Unknown model. Send /model to see the list."
+        db.set("model_pref", pick)
+        db.delete(f"cool:{pick}")
+        return f"OK, I will use {pick} first."
+    cur = llm_models()[0]
+    lines = [f"{i}. {m}{'  <- in use' if m == cur else ''}" for i, m in enumerate(LLM_MODELS, 1)]
+    return ("Models I can use (" + LLM_BASE_URL.split("//")[-1].split("/")[0] + "):\n" + "\n".join(lines)
+            + "\n\n/model 2 : use number 2 first\n/model auto : default order. If one fails, I try the next automatically.")
+
+
 def agent_groq(chat_id, question, oral=False, taint=False):
-    """Meme agent que ci-dessus, mais sur Groq (tres rapide). Renvoie (texte, liens) ; texte = None si Groq est indisponible."""
+    """Agent loop on the main provider (OpenAI-compatible API, Groq by default). Returns (text, links) ; text = None if it is unavailable."""
     history = []
     for x in db.lrange(f"hist:{chat_id}", 0, -1):
         m = json.loads(x)
@@ -1628,21 +1855,21 @@ def agent_groq(chat_id, question, oral=False, taint=False):
     links = ["(fichier recu)"] if taint else []
     for _ in range(10):
         resp = None
-        for model in GROQ_MODELS:
+        for model in llm_models():
             if db.get(f"cool:{model}"):
                 continue
             t0 = time.time()
             try:
-                r = NET.post("https://api.groq.com/openai/v1/chat/completions", timeout=20,
-                                  headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                r = NET.post(f"{LLM_BASE_URL}/chat/completions", timeout=20,
+                                  headers={"Authorization": f"Bearer {LLM_API_KEY}"},
                                   json={"model": model, "messages": messages, "tools": GROQ_TOOLS,
                                         "temperature": 0.4, "max_tokens": 1200,
                                         **({"reasoning_effort": effort(question, oral)} if "gpt-oss" in model else {})})
             except requests.RequestException as e:
-                log.warning("groq %s injoignable : %s", model, scrub(e))
+                log.warning("llm %s injoignable : %s", model, scrub(e))
                 db.setex(f"cool:{model}", 60, 1)
                 continue
-            log.info("groq %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
+            log.info("llm %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
             if r.status_code == 200:
                 resp = r
                 break
@@ -1674,13 +1901,13 @@ def agent_groq(chat_id, question, oral=False, taint=False):
 def transcribe(audio):
     """Message vocal -> texte avec Whisper sur Groq (environ 1 s). None si impossible."""
     try:
-        r = requests.post("https://api.groq.com/openai/v1/audio/transcriptions", timeout=30,
-                          headers={"Authorization": f"Bearer {GROQ_KEY}"},
-                          data={"model": "whisper-large-v3-turbo", "language": "fr"},
+        r = requests.post(f"{STT_BASE_URL}/audio/transcriptions", timeout=30,
+                          headers={"Authorization": f"Bearer {STT_API_KEY}"},
+                          data={"model": STT_MODEL, **({"language": STT_LANGUAGE} if STT_LANGUAGE else {})},
                           files={"file": ("voice.ogg", audio, "audio/ogg")})
         if r.status_code == 200:
             return r.json().get("text", "").strip() or None
-        log.warning("whisper code %s", r.status_code)
+        log.warning("speech-to-text code %s", r.status_code)
     except requests.RequestException as e:
         log.warning("whisper injoignable : %s", scrub(e))
     return None
@@ -1689,6 +1916,8 @@ def transcribe(audio):
 def agent(chat_id, user_parts, oral=False, taint=False):
     """Boucle d'agent : Gemini repond, ou demande des outils (musique, recherche web, commandes...) puis conclut.
     Renvoie (texte, liens) ; texte = None si Gemini est indisponible (message deja pret dans liens[0])."""
+    if not GEMINI_KEY:
+        return None, ["No AI provider answered. Check LLM_API_KEY (or add GEMINI_API_KEY as a backup) and try again."]
     history = [json.loads(x) for x in db.lrange(f"hist:{chat_id}", 0, -1)]
     contents = history + [{"role": "user", "parts": user_parts}]
     links = ["(fichier recu)"] if taint else []
@@ -1742,7 +1971,7 @@ def ask(chat_id, question, oral=False, taint=False):
 
 def ask_voice(chat_id, audio, mime):
     """Message vocal : Gemini ecoute, comprend, agit si besoin et repond (un seul passage)."""
-    if GROQ_KEY:
+    if STT_API_KEY:
         text = transcribe(audio)
         if text:
             return text, ask(chat_id, text, oral=True)
@@ -1952,6 +2181,8 @@ def send_voice(chat_id, text):
         return False
     try:
         audio = voice_note(text)
+        if is_wa(chat_id):
+            return whatsapp.send_audio(wa_to(chat_id), audio)
         r = requests.post(f"{TG}/sendVoice", data={"chat_id": chat_id},
                           files={"voice": ("reponse.ogg", audio, "audio/ogg")}, timeout=60)
         return r.status_code == 200
@@ -2077,14 +2308,17 @@ def handle(msg):
             cmd, arg = "/non", ""
 
     owner = db.get("owner_id")
-    if owner is None:
+    if is_wa(chat_id):
+        if not whatsapp.allowed(wa_to(chat_id)):          # only the numbers listed in WA_OWNER
+            return
+    elif owner is None:
         if cmd == "/start":
             db.set("owner_id", chat_id)
             send(chat_id, "Salut ! Je suis maintenant lie a toi seul.\n\n" + AIDE)
         else:
             send(chat_id, "Envoie /start pour commencer.")
         return
-    if str(chat_id) != owner:
+    elif str(chat_id) != owner:
         log.info("message ignore (chat non autorise)")
         return
 
@@ -2124,6 +2358,8 @@ def handle(msg):
         confirm_no(chat_id)
     elif cmd == "/temp":
         reply(chat_id, f"Le processeur est a {cpu_temp().replace(' C', ' degres')}.")
+    elif cmd == "/model":
+        send(chat_id, model_command(chat_id, arg))
     elif cmd == "/reset":
         db.delete(f"hist:{chat_id}")
         send(chat_id, "Conversation effacee.")
@@ -2173,6 +2409,10 @@ def handle(msg):
     elif cmd == "/de":
         faces = int(arg) if arg.isdigit() and 2 <= int(arg) <= 1000 else 6
         reply(chat_id, f"Un de a {faces} faces : {random.randint(1, faces)}")
+    elif cmd in ("/favoris", "/favs"):
+        favs = favorites()
+        send(chat_id, ("Tes favoris :\n" + "\n".join(f"- {f['text']}" + (f" ({f['kind']})" if f.get("kind") else "") for f in favs))
+             if favs else "Pas encore de favori. Dis-moi 'j'aime' quand un truc te plait et je le garde.")
     elif cmd == "/pile":
         reply(chat_id, random.choice(["Pile", "Face"]))
     elif cmd == "/heure":
@@ -2223,11 +2463,10 @@ def handle_voice(chat_id, voice):
     if quota_exceeded(chat_id):
         return
     tg("sendChatAction", chat_id=chat_id, action="record_voice")
-    info = tg("getFile", file_id=voice["file_id"]).get("result") or {}
-    if not info.get("file_path"):
+    audio = fetch_file(chat_id, voice["file_id"])
+    if not audio:
         send(chat_id, "Je n'ai pas pu recuperer ton message vocal.")
         return
-    audio = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{info['file_path']}", timeout=60).content
     heard, answer = ask_voice(chat_id, audio, voice.get("mime_type") or "audio/ogg")
     # Regle simple : tu parles -> je reponds en vocal, rien d'autre. Si le vocal echoue, je reponds en texte.
     if answer == SILENT:
@@ -2251,11 +2490,10 @@ def handle_file(chat_id, msg):
         send(chat_id, "Fichier trop gros : 20 Mo maximum.")
         return
     tg("sendChatAction", chat_id=chat_id, action="typing")
-    info = tg("getFile", file_id=fid).get("result") or {}
-    if not info.get("file_path"):
+    data = fetch_file(chat_id, fid)
+    if not data:
         send(chat_id, "Je n'ai pas pu recuperer ce fichier.")
         return
-    data = requests.get(f"https://api.telegram.org/file/bot{TOKEN}/{info['file_path']}", timeout=90).content
     folder = os.path.expanduser("~/recus")
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{datetime.now():%Y%m%d-%H%M%S}-{re.sub(r'[^A-Za-z0-9._-]', '_', name)[:80]}")
@@ -2373,6 +2611,35 @@ def watch_loop():
         time.sleep(600)
 
 
+def wa_dispatch(m):
+    """One WhatsApp message (already checked: signature, allowed number, not a duplicate) -> same code path as Telegram."""
+    chat_id = "wa:" + m["from"]
+    try:
+        if m["button"].startswith("ok:"):                                  # tap on the Yes / No buttons
+            _, yn, pid = (m["button"].split(":") + ["", ""])[:3]
+            confirm_yes(chat_id, pid) if yn == "yes" else confirm_no(chat_id)
+            return
+        msg = {"chat": {"id": chat_id, "type": "private"}, "caption": m["caption"]}
+        if m["type"] == "text":
+            msg["text"] = m["text"]
+        elif m["type"] == "audio":
+            msg["voice"] = {"file_id": m["media"], "mime_type": m["mime"] or "audio/ogg", "duration": 0}
+        elif m["type"] == "image":
+            msg["photo"] = [{"file_id": m["media"], "file_size": 0}]
+        elif m["type"] == "document":
+            msg["document"] = {"file_id": m["media"], "file_name": m["name"], "mime_type": m["mime"], "file_size": 0}
+        else:
+            send(chat_id, "I can't read this kind of message yet. Text, voice notes, photos and files work.")
+            return
+        handle(msg)
+    except Exception as e:
+        log.error("whatsapp message error: %s", scrub(e))
+        try:
+            send(chat_id, "Oups, une erreur est survenue.")
+        except Exception:
+            pass
+
+
 def safe_handle(msg):
     try:
         handle(msg)
@@ -2385,7 +2652,15 @@ def safe_handle(msg):
 
 
 def main():
-    log.info("bot demarre (modeles : %s)", ", ".join(MODELS))
+    if not LLM_API_KEY and not GEMINI_KEY:
+        raise SystemExit("No AI provider configured: set LLM_API_KEY (or GROQ_API_KEY) and/or GEMINI_API_KEY in the .env file.")
+    log.info("bot started (models: %s | backup: %s)", ", ".join(LLM_MODELS) if LLM_API_KEY else "none",
+             "gemini" if GEMINI_KEY else "none")
+    if whatsapp is not None and whatsapp.configured():
+        whatsapp.serve(wa_dispatch, lambda i: not db.set(f"wa_seen:{i}", 1, nx=True, ex=86400))
+        log.info("WhatsApp channel on")
+    elif os.environ.get("WA_TOKEN"):
+        log.warning("WhatsApp: WA_TOKEN is set but WA_PHONE_ID, WA_VERIFY_TOKEN, WA_APP_SECRET or WA_OWNER is missing: channel off")
     try:
         tg("setMyCommands", commands=[{"command": c, "description": d} for c, d in MENU])
     except Exception as e:
