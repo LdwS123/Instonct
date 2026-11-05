@@ -169,6 +169,7 @@ AIDE = (
     "/memoire : ce que je sais de toi (/memoire oublie <texte>)\n"
     "/vitesse : le temps de mes dernieres reponses, etape par etape\n"
     "/sante : ce qui marche et ce qui ne marche pas chez moi\n"
+    "/journal : ce que j'ai vraiment fait (et ce qui a rate)\n"
     "/pile : pile ou face\n"
     "Je sais aussi (dis-le simplement) : suivre tes candidatures et demarches (et te relancer), noter tes depenses et le budget du mois, "
     "retenir les anniversaires, tenir un carnet de notes, calculer et convertir, resumer une video YouTube, "
@@ -184,7 +185,7 @@ MENU = [
     ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
     ("musique", "Jouer une musique YouTube"), ("pause", "Pause"), ("reprendre", "Reprendre la musique"),
     ("telecommande", "Telecommande de la tele"), ("sortie", "Son : auto, tele ou mac"),
-    ("matin", "Resume du matin"), ("habitudes", "Ce que j'ai appris sur toi"), ("routines", "Tes routines"), ("memoire", "Ce que je sais de toi"), ("vitesse", "Temps de mes reponses"), ("sante", "Ce qui marche chez moi"), ("model", "Choose the AI model"), ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
+    ("matin", "Resume du matin"), ("habitudes", "Ce que j'ai appris sur toi"), ("routines", "Tes routines"), ("memoire", "Ce que je sais de toi"), ("vitesse", "Temps de mes reponses"), ("sante", "Ce qui marche chez moi"), ("journal", "Ce que j'ai vraiment fait"), ("model", "Choose the AI model"), ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
 ]
 
 BLAGUES = [

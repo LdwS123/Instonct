@@ -8,17 +8,19 @@ import time
 import uuid
 from datetime import datetime
 
-from . import demarche, meetings, monde, perf, plus, recall
+from . import demarche, journal, meetings, monde, perf, plus, recall
 from .optional import tvremote
 from .core import db, log, norm, scrub
 from . import catalog, chatlog, commands, google, guard, life, linkedin, llm, mail, mailindex, media, monitor, music, pagewatch, reminders, sound, system_tools, television, web
 
 def run_tool(chat_id, name, args, links):
-    t0 = time.time()
+    t0, out = time.time(), None
     try:
-        return _run_tool(chat_id, name, args, links)
+        out = _run_tool(chat_id, name, args, links)
+        return out
     finally:
         perf.add("outil:" + name, time.time() - t0)
+        journal.tool(name, out)
 
 
 def _run_tool(chat_id, name, args, links):

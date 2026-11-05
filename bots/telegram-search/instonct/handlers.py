@@ -15,7 +15,7 @@ from .optional import whatsapp
 from .config import MAX_PER_DAY, MAX_PER_MIN, STT_API_KEY
 from .texts import AIDE, BLAGUES, SILENT
 from .core import db, fetch_file, is_wa, log, norm, scrub, send, tg, wa_to
-from . import brain, callbacks, commands, google, life, llm, media, music, pagewatch, perf, recall, health, reminders, remote_access, sound, television
+from . import brain, callbacks, commands, google, journal, life, llm, media, music, pagewatch, perf, recall, health, reminders, remote_access, sound, television
 
 # ---------------------------------------------------------------- messages
 def handle(msg):
@@ -162,6 +162,8 @@ def handle(msg):
         send(chat_id, perf.report())
     elif cmd == "/sante":
         send(chat_id, health.report())
+    elif cmd == "/journal":
+        send(chat_id, journal.report())
     elif cmd == "/memoire":
         a = norm(arg)
         if a.startswith("oublie "):
@@ -234,6 +236,7 @@ def instant_order(chat_id, text):
     if not done:
         return False
     log.info("ordre direct %r -> %r", text[:80], str(done)[:160])
+    journal.order(text, done)
     send(chat_id, done)
     brain.remember(chat_id, text, done)                  # "et eteins-la" must still make sense afterwards
     return True

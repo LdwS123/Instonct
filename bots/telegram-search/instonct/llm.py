@@ -16,16 +16,29 @@ from . import catalog, perf
 _AD_LINK = re.compile(r"/aclick\?|duckduckgo\.com/y\.js|googleadservices\.")
 
 
+SPARE_ENGINES = "brave,startpage,mojeek,yahoo"      # other engines of the same library: used only when the usual mix finds nothing
+
+
 def web_search(query, n=5, kind="text"):
-    """Recherche DuckDuckGo (gratuite, sans cle). kind="news" pour l'actualite. Renvoie [] en cas d'echec."""
+    """Recherche web gratuite, sans cle (DuckDuckGo et autres moteurs via ddgs). kind="news" pour l'actualite. Renvoie [] en cas d'echec."""
     try:
         from ddgs import DDGS
-        if kind == "news":
-            return [{**r, "href": r.get("url", "")} for r in (DDGS(timeout=6).news(query, max_results=n, region="fr-fr") or [])]
-        return [r for r in (DDGS(timeout=4).text(query, max_results=n, region="fr-fr") or []) if not _AD_LINK.search(r.get("href", ""))]
-    except Exception as e:
-        log.warning("recherche web indisponible : %s", scrub(e))
+    except ImportError:
         return []
+    for spare in (False, True):
+        try:
+            if kind == "news":
+                found = [{**r, "href": r.get("url", "")} for r in (DDGS(timeout=6).news(query, max_results=n, region="fr-fr") or [])]
+            else:
+                found = [r for r in (DDGS(timeout=8 if spare else 4).text(query, max_results=n, region="fr-fr", **({"backend": SPARE_ENGINES} if spare else {})) or [])
+                         if not _AD_LINK.search(r.get("href", ""))]
+            if found:
+                return found
+        except Exception as e:
+            log.warning("recherche web %s : %s", "de secours indisponible" if spare else "indisponible", scrub(e))
+        if kind == "news":
+            break
+    return []
 
 
 def _call_model(model, body):
