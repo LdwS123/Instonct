@@ -74,8 +74,9 @@ MODELS = os.environ.get(
     "gemini-3.5-flash,gemini-3.6-flash,gemini-3-flash-preview,gemini-3.5-flash-lite,gemini-flash-lite-latest",
 ).split(",")
 # Palier gratuit Gemini : ~5 requetes/min et ~20/jour PAR MODELE ; avec 5 modeles en secours on a bien plus.
-MAX_PER_MIN = 8
-MAX_PER_DAY = 80
+# Garde-fou contre les boucles : large, car le vrai plafond vient du fournisseur (Groq, etc.), gere par le repli entre modeles.
+MAX_PER_MIN = int(os.environ.get("MAX_PER_MIN", "15") or 15)
+MAX_PER_DAY = int(os.environ.get("MAX_PER_DAY", "600") or 600)
 HISTORY_TURNS = 12         # nombre d'echanges gardes en memoire courte
 HISTORY_TTL = 86400        # 24 h : la conversation reprend meme le lendemain
 
@@ -2948,7 +2949,11 @@ def screen_message(text):
     db.setex("ecran_msg", 60, text)
 
 
+CITY_ALIASES = {"sf": "San Francisco", "nyc": "New York", "la": "Los Angeles", "lyon": "Lyon", "bx": "Bordeaux"}
+
+
 def meteo(city):
+    city = CITY_ALIASES.get(city.strip().lower(), city)
     g = requests.get("https://geocoding-api.open-meteo.com/v1/search",
                      params={"name": city, "count": 1, "language": "fr"}, timeout=15).json()
     if not g.get("results"):
@@ -3204,13 +3209,13 @@ def quota_exceeded(chat_id):
     if db.incr(slot) == 1:
         db.expire(slot, 90)
     if int(db.get(slot)) > MAX_PER_MIN:
-        send(chat_id, "Doucement : 8 questions par minute maximum (limite gratuite de Gemini).")
+        send(chat_id, f"Doucement : {MAX_PER_MIN} questions par minute maximum.")
         return True
     day = f"rl:day:{datetime.now():%Y-%m-%d}"
     if db.incr(day) == 1:
         db.expire(day, 90000)
     if int(db.get(day)) > MAX_PER_DAY:
-        send(chat_id, f"Tu as utilise tes {MAX_PER_DAY} questions IA gratuites d'aujourd'hui. "
+        send(chat_id, f"Tu as utilise tes {MAX_PER_DAY} questions IA d'aujourd'hui (garde-fou). "
                       "Les commandes (/meteo, /blague, /dis...) restent illimitees. Reviens demain !")
         return True
     return False
