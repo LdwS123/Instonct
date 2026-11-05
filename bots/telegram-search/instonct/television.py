@@ -149,6 +149,7 @@ def tv_channel(num):
 def tv_power(want):
     """Allume ('on') ou eteint ('off') la tele, en verifiant d'abord dans quel etat elle est."""
     on = cast.tv_on()
+    log.info("tele : ordre %s, etat vu avant = %s", want, "allumee" if on else "eteinte ou en veille")
     if want == "on" and on:
         return "La tele est deja allumee."
     if want == "off" and not on:
@@ -160,6 +161,7 @@ def tv_power(want):
         time.sleep(1.5)
         cast._tv_cache["t"] = 0.0
         now_on = cast.tv_on()
+        log.info("tele : etat vu apres l'ordre = %s", "allumee" if now_on else "eteinte ou en veille")
         if now_on == (want == "on"):
             return "La tele est allumee." if want == "on" else "La tele est eteinte."
     if want == "on":

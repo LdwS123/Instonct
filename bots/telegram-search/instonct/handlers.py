@@ -233,6 +233,7 @@ def instant_order(chat_id, text):
     done = music.quick_music(text)
     if not done:
         return False
+    log.info("ordre direct %r -> %r", text[:80], str(done)[:160])
     send(chat_id, done)
     brain.remember(chat_id, text, done)                  # "et eteins-la" must still make sense afterwards
     return True
