@@ -32,6 +32,7 @@ import redis
 import requests
 
 import mailtriage                          # sorts mails: important or advertising (no AI call)
+import plus                                # tracker, expenses, dates, notebook, calculator, video text, settings (no AI call)
 
 try:                                       # extra tools (documents, QR, places, Wikipedia, currencies...) : the bot still runs without them
     import extras
@@ -116,6 +117,8 @@ SYSTEM = (
     "Emails : tu peux AGIR : mail_manage (effacer = corbeille recuperable, archiver, marquer lu, spam), mail_clean (menage : supprime toutes les pubs d'un coup), "
     "mail_reply (repondre dans le meme fil). Fais-le directement des que l'utilisateur le demande, sans redemander ni dire que tu ne peux pas. "
     "Pour repondre : ecris toi-meme une vraie reponse (pas de modele vide), puis il appuie sur Envoyer. "
+    "Outils perso (instantanes, sans IA) : suivi (candidatures/demarches : AJOUTE-LES des qu'il dit qu'il a postule ou attend une reponse), depenses (budget), dates (anniversaires), "
+    "carnet (notes), calcul (TOUT calcul et conversion d'unites : ne calcule jamais de tete), video_texte (sous-titres d'une video YouTube), reglage (activer les automatismes). "
     "Emails : mail_send prepare un brouillon que l'utilisateur valide avec les boutons Oui/Non ou /oui (tu n'envoies jamais seul). "
     "Quand l'utilisateur t'envoie une photo ou un fichier, il est range dans ~/recus (chemin donne dans le message) : analyse-le, et range-le ou deplace-le avec run_command si on te le demande. "
     "Taches longues : decoupe-les en etapes, enchaine les outils, ou utilise schedule_task pour continuer plus tard et envoyer le resultat. "
@@ -205,6 +208,9 @@ AIDE = (
     "/habitudes : ce que j'ai appris sur toi (/habitudes effacer pour tout oublier)\n"
     "/routines : tes routines (un mot lance plusieurs actions)\n"
     "/pile : pile ou face\n"
+    "Je sais aussi (dis-le simplement) : suivre tes candidatures et demarches (et te relancer), noter tes depenses et le budget du mois, "
+    "retenir les anniversaires, tenir un carnet de notes, calculer et convertir, resumer une video YouTube, "
+    "te prevenir 30 min avant un rendez-vous avec le lien Meet, faire le menage des pubs (meme chaque nuit), faire un bilan le soir.\n"
     "/heure : date et heure du serveur\n"
     "/reset : oublier la conversation"
 )
@@ -1165,6 +1171,23 @@ TOOLS = [{"functionDeclarations": [
     {"name": "mail_reply", "description": "REPOND a un email (meme fil de discussion) : id = id du mail (mail_list / mail_search), body = texte de ta reponse (ecris-la toi-meme, polie, "
      "dans la langue du mail, signee du prenom de l'utilisateur si tu le connais). reply_all=true pour repondre a tous. L'utilisateur voit le texte et appuie sur Envoyer.",
      "parameters": {"type": "object", "properties": {"id": {"type": "string"}, "body": {"type": "string"}, "reply_all": {"type": "boolean"}}, "required": ["id", "body"]}},
+    {"name": "suivi", "description": "SUIVI de demandes (candidatures, demarches, colis, litiges...). action add|update|list|remove. add: titre, categorie (candidature/demarche/colis/autre), statut, note, relance_jours "
+     "(je previens s'il n'y a pas de nouvelle apres N jours). update/remove: ref = id ou mot du titre. Utilise-le des que l'utilisateur dit qu'il a postule / envoye / attend une reponse.",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["add", "update", "list", "remove"]}, "titre": {"type": "string"}, "ref": {"type": "string"},
+                    "categorie": {"type": "string"}, "statut": {"type": "string"}, "note": {"type": "string"}, "relance_jours": {"type": "integer"}}, "required": ["action"]}},
+    {"name": "depenses", "description": "BUDGET : action add (montant, categorie, note, date AAAA-MM-JJ) | list (periode: semaine|mois|AAAA-MM|tout, categorie) | remove (ref ou la derniere). Pour 'j'ai depense 12 euros...' ou 'combien j'ai depense'.",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["add", "list", "remove"]}, "montant": {"type": "number"}, "categorie": {"type": "string"}, "note": {"type": "string"},
+                    "date": {"type": "string"}, "periode": {"type": "string"}, "ref": {"type": "string"}}, "required": ["action"]}},
+    {"name": "dates", "description": "ANNIVERSAIRES et dates importantes (rappel 3 jours avant et le jour meme). action add (nom, jour 'JJ/MM' ou 'JJ/MM/AAAA') | list | remove (nom).",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["add", "list", "remove"]}, "nom": {"type": "string"}, "jour": {"type": "string"}, "type": {"type": "string"}}, "required": ["action"]}},
+    {"name": "carnet", "description": "CARNET de notes longues (idees, infos, codes, recettes...) : action add (texte, tags) | search (recherche) | remove (ref). Pour 'note que...' / 'retrouve ma note sur...'.",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["add", "search", "remove"]}, "texte": {"type": "string"}, "tags": {"type": "string"}, "recherche": {"type": "string"}, "ref": {"type": "string"}}, "required": ["action"]}},
+    {"name": "calcul", "description": "Calcule exactement : '15% de 80', '(12+8)*3', '5 km en miles', '70 kg en lb', '20 c en f'. Utilise-le pour TOUT calcul au lieu de deviner.",
+     "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}},
+    {"name": "video_texte", "description": "Recupere le TEXTE (sous-titres) d'une video YouTube pour la resumer ou repondre dessus. url = lien YouTube, debut = position pour lire la suite.",
+     "parameters": {"type": "object", "properties": {"url": {"type": "string"}, "debut": {"type": "integer"}}, "required": ["url"]}},
+    {"name": "reglage", "description": "Active/coupe une fonction automatique : nom = rappel_rdv | relances | dates | menage_auto (pubs a la corbeille chaque nuit) | bilan_soir (bilan a 21 h). actif=true/false ; sans actif = voir l'etat ; sans nom = tout lister.",
+     "parameters": {"type": "object", "properties": {"nom": {"type": "string"}, "actif": {"type": "boolean"}}}},
     {"name": "web_search", "description": "Cherche sur le web pour des infos recentes ou verifiables (kind=news pour l'actualite). Inutile pour la conversation simple.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "kind": {"type": "string", "enum": ["text", "news"]}, "limit": {"type": "integer"}}, "required": ["query"]}},
     {"name": "play_music", "description": "Joue une musique ou une video YouTube (audio) sur la sortie choisie (Mac mini ou tele). Donne titre et artiste, ou un lien.",
@@ -2707,6 +2730,10 @@ def run_tool(chat_id, name, args, links):
                     if args.get("remove") is not True:
                         db.incr(f"todo_done:{datetime.now():%Y-%m-%d}")
             return {"resultat": f"{n} tache(s) " + ("supprimee(s)" if args.get("remove") is True else "terminee(s)"), "reste": todo_texts() or "rien, tout est fait"}
+        if name in plus.NAMES:
+            if name == "video_texte":
+                links.append("(page web)")          # contenu externe : conversation "sensible"
+            return plus.tool(db, name, args)
         if name == "mail_send":
             return mail_send_request(chat_id, args)
         if name == "mail_reply":
@@ -2873,6 +2900,13 @@ TOOL_GROUPS = [
     (r"reveille|wake|wol\b|magic packet|allume (?:le |mon )?(?:pc|ordi)", {"wake_on_lan"}),
     (r"routine|rituel|quand je dis|macro|enchaine|bonne nuit|bonjour steve", {"routine_save", "routine_run", "routine_list", "routine_delete"}),
     (r"liste|courses|acheter|achat|ajoute|shopping|a prendre|cadeau", {"list_add", "list_show", "list_remove"}),
+    (r"postule|candidat|relance|attends|reponse|demarche|dossier|suivi|j.ai envoye|en attente", {"suivi"}),
+    (r"depens|budget|achete|paye|combien j.ai|euros? (?:de|pour|chez)|resto|essence|courses", {"depenses"}),
+    (r"anniversaire|anniv|fete de|date importante|naissance|n.oublie pas", {"dates"}),
+    (r"note|carnet|idee|retiens|garde.?moi|retrouve ma|ma note|mes notes|recette|code de", {"carnet"}),
+    (r"calcul|combien (?:fait|ca fait)|\d\s*%|pourcent|convertis|en miles|en km|en kg|en lb|fahrenheit|celsius|\d\s*[x*/+^]\s*\d", {"calcul"}),
+    (r"youtube\.com|youtu\.be|video|sous.?titre|resume cette|transcri", {"video_texte"}),
+    (r"reglage|desactive|active\b|coupe|automatique|chaque nuit|chaque soir|bilan|rappel de rdv|menage auto", {"reglage"}),
     (r"matin|briefing|resume du jour|chaque jour|reveil|habitude|appris|connais", {"morning_briefing", "habits"}),
 ]
 CORE_TOOLS = {"run_command", "python_run", "read_file", "write_file", "http_request", "web_search", "fetch_url", "browser", "remember", "forget",
@@ -3820,6 +3854,50 @@ def check_todos(chat_id):
          + "\n\nDis-moi ce qui est fini et je le coche.")
 
 
+def check_plus(chat_id):
+    """Automatismes sans IA : rendez-vous dans 30 min (avec lien Meet), relances, anniversaires, menage de nuit, bilan du soir."""
+    now = datetime.now()
+    for msg in plus.due(db, now):
+        send(chat_id, msg)
+    if plus.setting(db, "rappel_rdv"):
+        import gcal
+        if gcal.connected() and gcal.token_ok():
+            for ev in gcal.list_events(1):
+                try:
+                    start = datetime.strptime(ev["debut"], "%Y-%m-%d %H:%M")
+                except ValueError:
+                    continue                                                    # evenement sur toute la journee
+                mins = (start - now).total_seconds() / 60
+                if 20 <= mins <= 40 and db.set(f"rdv_ping:{ev['id']}", 1, nx=True, ex=86400):
+                    link = ev.get("meet") or next(iter(re.findall(r"https?://\S+", ev.get("lieu", ""))), "")
+                    send(chat_id, f"Dans {int(mins)} minutes : {ev['titre']} a {start:%H:%M}." + (f"\nLien : {link}" if link else "")
+                         + (f"\nLieu : {ev['lieu']}" if ev.get("lieu") and not link else ""))
+    if now.hour == 3 and plus.setting(db, "menage_auto") and db.set(f"menage_auto:{now:%Y-%m-%d}", 1, nx=True, ex=86400):
+        res = mail_clean(7, 200, False)
+        n = res.get("mis_a_la_corbeille", 0) if isinstance(res, dict) else 0
+        if n:
+            send(chat_id, f"Menage de nuit : {n} pub(s) mise(s) a la corbeille (recuperables 30 jours).")
+    if now.hour == 21 and plus.setting(db, "bilan_soir") and db.set(f"bilan_soir:{now:%Y-%m-%d}", 1, nx=True, ex=86400):
+        lines = []
+        try:
+            import gcal
+            if gcal.connected() and gcal.token_ok():
+                tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+                evs = gcal.list_events(1, tomorrow)
+                if evs:
+                    lines.append("Demain : " + " ; ".join(f"{e['debut'][11:] or 'journee'} {e['titre']}" for e in evs[:6]))
+        except Exception as e:
+            log.info("bilan agenda : %s", scrub(e)[:80])
+        todo = todo_texts()
+        if todo:
+            lines.append(f"Il te reste {len(todo)} tache(s) : " + ", ".join(todo[:5]))
+        res = mail_list("", True, 10, important_only=True, raw=True)
+        imp = [m for m in res.get("emails", []) if isinstance(res.get("emails"), list) and m["_tri"]["niveau"] == "important"] if isinstance(res, dict) else []
+        if imp:
+            lines.append(f"{len(imp)} mail(s) important(s) pas encore lu(s).")
+        send(chat_id, "Bilan du soir :\n" + "\n".join(lines) if lines else "Bilan du soir : rien de special, bonne soiree !")
+
+
 def check_google(chat_id):
     """Tant que l'app Google est en 'Testing', l'acces expire au bout de 7 jours : on previent a l'avance."""
     import gcal
@@ -3855,7 +3933,7 @@ def watch_loop():
         try:
             owner = db.get("owner_id")
             if owner:
-                for fn in (check_mail, check_system, check_todos, check_google, check_pages, check_habits):
+                for fn in (check_mail, check_system, check_todos, check_plus, check_google, check_pages, check_habits):
                     try:
                         fn(int(owner))
                     except Exception as e:
