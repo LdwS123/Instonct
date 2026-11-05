@@ -65,7 +65,12 @@ LLM2_API_KEY = os.environ.get("LLM2_API_KEY", "")
 LLM2_MODELS = [m.strip() for m in os.environ.get("LLM2_MODELS", "gpt-oss-120b").split(",") if m.strip()] if (LLM2_BASE_URL and LLM2_API_KEY) else []
 MODEL_API = {m: (LLM_BASE_URL, LLM_API_KEY) for m in LLM_MODELS} if LLM_API_KEY else {}      # model name -> (base url, key)
 MODEL_API.update({m: (LLM2_BASE_URL, LLM2_API_KEY) for m in LLM2_MODELS})
-ALL_MODELS = [m for m in LLM_MODELS if LLM_API_KEY] + [m for m in LLM2_MODELS if m not in LLM_MODELS]
+# Optional third provider (same idea, e.g. Cerebras: LLM3_BASE_URL=https://api.cerebras.ai/v1, LLM3_MODELS=gpt-oss-120b)
+LLM3_BASE_URL = os.environ.get("LLM3_BASE_URL", "").rstrip("/")
+LLM3_API_KEY = os.environ.get("LLM3_API_KEY", "")
+LLM3_MODELS = [m.strip() for m in os.environ.get("LLM3_MODELS", "gpt-oss-120b").split(",") if m.strip()] if (LLM3_BASE_URL and LLM3_API_KEY) else []
+MODEL_API.update({m: (LLM3_BASE_URL, LLM3_API_KEY) for m in LLM3_MODELS if m not in MODEL_API})
+ALL_MODELS = [m for m in LLM_MODELS if LLM_API_KEY] + [m for m in LLM2_MODELS + LLM3_MODELS if m not in LLM_MODELS]
 # Voice notes -> text (Whisper API of the same provider by default). STT_LANGUAGE empty = auto-detect, or e.g. "fr".
 STT_BASE_URL = os.environ.get("STT_BASE_URL", LLM_BASE_URL).rstrip("/")
 STT_API_KEY = os.environ.get("STT_API_KEY") or LLM_API_KEY
@@ -260,7 +265,7 @@ log = logging.getLogger("bot")
 def scrub(e):
     """Retire les secrets d'un message d'erreur avant de le journaliser."""
     s = str(e)
-    for secret in (TOKEN, GEMINI_KEY, LLM_API_KEY, LLM2_API_KEY, STT_API_KEY, os.environ.get("WA_TOKEN", ""), os.environ.get("WA_APP_SECRET", "")):
+    for secret in (TOKEN, GEMINI_KEY, LLM_API_KEY, LLM2_API_KEY, LLM3_API_KEY, STT_API_KEY, os.environ.get("WA_TOKEN", ""), os.environ.get("WA_APP_SECRET", "")):
         if secret:
             s = s.replace(secret, "***")
     return s
