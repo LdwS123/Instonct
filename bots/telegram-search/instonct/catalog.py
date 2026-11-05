@@ -273,7 +273,7 @@ def build_system(oral=False, toolset=None, text=""):
     memory = recall.for_prompt(text)
     now = datetime.now()
     jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
-    quand = f"\n\nNous sommes {jours[now.weekday()]} {now:%d/%m/%Y}, il est {now:%H:%M}. Donne l'heure et la date directement, sans outil."
+    quand = f"\n\nNous sommes {jours[now.weekday()]} {now:%d/%m/%Y}, il est {now:%H:%M}. Donne l'heure et la date directement, sans outil. Dans une recherche web, n'ecris pas d'annee sauf si l'utilisateur en donne une (ou ecris {now:%Y})."
     favs = [f"{f['text']} ({f['kind']})" if f.get("kind") else f["text"] for f in media.favorites()[-40:]]
     try:
         hab = habits.summary(db) if habits else ""
