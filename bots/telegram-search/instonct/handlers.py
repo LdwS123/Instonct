@@ -15,7 +15,7 @@ from .optional import whatsapp
 from .config import MAX_PER_DAY, MAX_PER_MIN
 from .texts import AIDE, BLAGUES, SILENT
 from .core import db, fetch_file, is_wa, log, norm, scrub, send, tg, wa_to
-from . import brain, callbacks, commands, google, life, llm, media, music, pagewatch, reminders, remote_access, sound, television
+from . import brain, callbacks, commands, google, life, llm, media, music, pagewatch, perf, recall, health, reminders, remote_access, sound, television
 
 # ---------------------------------------------------------------- messages
 def handle(msg):
@@ -158,6 +158,16 @@ def handle(msg):
             send(chat_id, life.set_briefing({"time": tm, "city": city}, chat_id) if tm or city else "Utilisation : /matin 8:00 Paris")
     elif cmd == "/habitudes":
         send(chat_id, life.habits_reset() if norm(arg) in ("effacer", "reset", "oublie") else life.habits_report())
+    elif cmd == "/vitesse":
+        send(chat_id, perf.report())
+    elif cmd == "/sante":
+        send(chat_id, health.report())
+    elif cmd == "/memoire":
+        a = norm(arg)
+        if a.startswith("oublie "):
+            send(chat_id, f"{recall.forget(arg.split(None, 1)[1])} souvenir(s) oublie(s).")
+        else:
+            send(chat_id, recall.overview())
     elif cmd == "/routines":
         a = norm(arg)
         if a.startswith("suppr"):
@@ -258,7 +268,8 @@ def handle_voice(chat_id, voice):
     if quota_exceeded(chat_id):
         return
     tg("sendChatAction", chat_id=chat_id, action="record_voice")
-    audio = fetch_file(chat_id, voice["file_id"])
+    with perf.timed("telechargement"):
+        audio = fetch_file(chat_id, voice["file_id"])
     if not audio:
         send(chat_id, "Je n'ai pas pu recuperer ton message vocal.")
         return
@@ -266,7 +277,9 @@ def handle_voice(chat_id, voice):
     # Regle simple : tu parles -> je reponds en vocal, rien d'autre. Si le vocal echoue, je reponds en texte.
     if answer == SILENT:
         return
-    if heard is None or not sound.send_voice(chat_id, answer):
+    with perf.timed("voix"):
+        spoken = heard is not None and sound.send_voice(chat_id, answer)
+    if not spoken:
         send(chat_id, answer)
     elif needs_text(heard, answer):                  # un lien, une adresse, une liste... ca ne se dit pas a voix haute : on l'ecrit aussi
         send(chat_id, answer)

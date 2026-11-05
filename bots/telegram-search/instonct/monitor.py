@@ -177,8 +177,8 @@ def check_followups(chat_id):
 
 def check_learn(chat_id):
     """Every six hours, the bot reads what the user said since last time and keeps what lasts."""
-    if plus.setting(db, "memoire_auto") and db.set("memlearn:next", 1, nx=True, ex=6 * 3600):
-        memlearn.learn_once(chat_id)
+    if plus.setting(db, "memoire_auto") and db.set("memlearn:next", 1, nx=True, ex=3600):
+        memlearn.learn_all(chat_id)
 
 
 def check_google(chat_id):

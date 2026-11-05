@@ -58,6 +58,17 @@ def user_messages(chat_id, after_id, limit):
         return [(r["id"], r["text"]) for r in con.execute("SELECT id, text FROM msgs WHERE chat=? AND role='utilisateur' AND id>? ORDER BY id LIMIT ?", (chat_id, after_id, limit))]
 
 
+def own_messages(chat_id, query, limit=15):
+    """[(datetime, text)] of what the user wrote about this, best match first. Bot answers and files are left out on purpose: see recall.py."""
+    q = localdb.match_query(query, _STOP, any_word=True)
+    if not q:
+        return []
+    with _db() as con:
+        rows = con.execute("SELECT m.at, m.text FROM msgs_fts JOIN msgs m ON m.id=msgs_fts.rowid WHERE msgs_fts MATCH ? AND m.chat=? AND m.role='utilisateur' "
+                           "ORDER BY bm25(msgs_fts) - m.at / 15768000.0 LIMIT ?", (q, chat_id, max(1, min(int(limit), 50)))).fetchall()
+    return [(datetime.fromtimestamp(r["at"]), r["text"]) for r in rows]
+
+
 def search(chat_id, query, limit=8):
     limit = max(1, min(int(limit or 8), 20))
     with _db() as con:

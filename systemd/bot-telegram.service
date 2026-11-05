@@ -10,7 +10,10 @@ EnvironmentFile=/home/ldws123/bots/.env
 ExecStart=/home/ldws123/bots/venv/bin/python bot.py
 Restart=always
 RestartSec=5
-MemoryMax=300M
+# The bot alone uses about 50 MB. Its browser window (Chromium, measured up to about 800 MB) counts in the same limit.
+MemoryMax=1500M
+# If the kernel kills the browser for memory, the bot stays up.
+OOMPolicy=continue
 
 [Install]
 WantedBy=multi-user.target

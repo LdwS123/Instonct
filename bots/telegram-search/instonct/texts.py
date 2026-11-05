@@ -109,6 +109,13 @@ PARTS = {          # only sent when the matching tools are offered: the free tie
         "APIs gratuites sans cle pour http_request : open-meteo.com (meteo detaillee), api.frankfurter.app, api.coingecko.com, nominatim.openstreetmap.org (adresses), "
         "router.project-osrm.org (itineraires), api.sunrise-sunset.org, restcountries.com, openlibrary.org, ip-api.com, hacker-news.firebaseio.com. "
     ),
+    "plan": (
+        "DEMARCHES : pour une demande a plusieurs etapes (voyage, courses, facture a contester, comparaison), ecris d'abord le plan en une ligne par etape, puis fais les etapes une par une et lis chaque resultat. "
+        "Si une etape echoue, essaie une autre voie. A la fin, dis ce qui est vraiment fait et ce qui reste. Voyage, courses, facture : demarche action=start donne les liens et les etapes. "
+        "Pour un panier que l'utilisateur finira : browser avec moteur=chrome (la meme fenetre que sur son telephone). Tu ne paies JAMAIS, ne valides jamais une commande et ne tapes jamais une carte : tu t'arretes avant et tu appelles demarche action=main. "
+        "Captcha ou blocage : tu ne le contournes pas, donne le lien direct. A la fin : browser action=close moteur=chrome (LinkedIn est refuse tant que l'ecran est ouvert). "
+        "Tu ne peux pas telephoner : utilise appel, et ne dis jamais que tu as appele, paye, commande ou reserve si ce n'est pas fait. "
+    ),
     "life": (
         "ROUTINES : s'il veut qu'un mot lance une suite d'actions ('quand je dis bonne nuit, ...'), appelle routine_save (jamais remember). LISTES : 'ajoute du lait aux courses' -> list_add. "
         "RESUME DU MATIN : 'un resume chaque matin a 8h' -> morning_briefing. Tu apprends ses habitudes toute seule (voir plus bas) : adapte-toi sans les reciter. "
@@ -157,6 +164,9 @@ AIDE = (
     "/matin 8:00 Paris : un resume chaque matin (meteo, agenda, taches, emails)\n"
     "/habitudes : ce que j'ai appris sur toi (/habitudes effacer pour tout oublier)\n"
     "/routines : tes routines (un mot lance plusieurs actions)\n"
+    "/memoire : ce que je sais de toi (/memoire oublie <texte>)\n"
+    "/vitesse : le temps de mes dernieres reponses, etape par etape\n"
+    "/sante : ce qui marche et ce qui ne marche pas chez moi\n"
     "/pile : pile ou face\n"
     "Je sais aussi (dis-le simplement) : suivre tes candidatures et demarches (et te relancer), noter tes depenses et le budget du mois, "
     "retenir les anniversaires, tenir un carnet de notes, calculer et convertir, resumer une video YouTube, "
@@ -172,7 +182,7 @@ MENU = [
     ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
     ("musique", "Jouer une musique YouTube"), ("pause", "Pause"), ("reprendre", "Reprendre la musique"),
     ("telecommande", "Telecommande de la tele"), ("sortie", "Son : auto, tele ou mac"),
-    ("matin", "Resume du matin"), ("habitudes", "Ce que j'ai appris sur toi"), ("routines", "Tes routines"), ("model", "Choose the AI model"), ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
+    ("matin", "Resume du matin"), ("habitudes", "Ce que j'ai appris sur toi"), ("routines", "Tes routines"), ("memoire", "Ce que je sais de toi"), ("vitesse", "Temps de mes reponses"), ("sante", "Ce qui marche chez moi"), ("model", "Choose the AI model"), ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
 ]
 
 BLAGUES = [

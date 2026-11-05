@@ -8,7 +8,7 @@ from .optional import whatsapp
 from .config import ALL_MODELS, GEMINI_KEY
 from .texts import MENU
 from .core import db, log, scrub, send, tg
-from . import callbacks, chatlog, handlers, mailindex, monitor, reminders, remote_access, sound
+from . import callbacks, chatlog, handlers, mailindex, monitor, perf, reminders, remote_access, sound
 
 def wa_dispatch(m):
     """One WhatsApp message (already checked: signature, allowed number, not a duplicate) -> same code path as Telegram."""
@@ -30,7 +30,7 @@ def wa_dispatch(m):
         else:
             send(chat_id, "I can't read this kind of message yet. Text, voice notes, photos and files work.")
             return
-        handlers.handle(msg)
+        _handle_timed(msg)
     except Exception as e:
         log.error("whatsapp message error: %s", scrub(e))
         try:
@@ -39,9 +39,20 @@ def wa_dispatch(m):
             pass
 
 
-def safe_handle(msg):
+def _handle_timed(msg):
+    """One message, measured, with "typing..." kept on until the answer is out."""
+    perf.start(perf.kind_of(msg))
+    stop = perf.keep_alive(msg["chat"]["id"])
     try:
         handlers.handle(msg)
+    finally:
+        stop()
+        perf.finish()
+
+
+def safe_handle(msg):
+    try:
+        _handle_timed(msg)
     except Exception as e:  # une erreur sur un message ne doit pas tuer le bot
         log.error("erreur message : %s", scrub(e))
         try:

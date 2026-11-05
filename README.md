@@ -49,7 +49,11 @@ almost anything: a Raspberry Pi, an old laptop, a cheap VPS.
 | **Hey Siri, Steve** | `/siri`: an iPhone Shortcut named *Steve* sends what you say to the bot (Tailscale-only endpoint with a secret URL) and Siri reads the answer aloud, even with the phone locked. Starting a message with "Steve, ..." in chat also makes it answer by voice. |
 | **Personal tools** | Tracker for applications and follow-ups (with automatic nudges), expenses, birthdays and key dates, a notebook, a safe calculator and unit converter, and the text of a YouTube video. No AI call needed. |
 | **Watching** | "Tell me when this page says *in stock*." Checks every 10+ minutes, pings only on change. |
-| **Memory** | Remembers your preferences for good, and learns when you correct it. |
+| **Memory** | Remembers who you are, your preferences and projects, learns from what you write (your words only), corrects old facts, and brings back what you said before on a subject. Local, no vector database. `/memoire` shows it. |
+| **Real procedures** | "Book me a weekend in Lisbon", "Order this list", "Dispute this bill": keeps a dossier that survives over days, opens a real browser, fills the cart or the form, and **stops at payment**: you get the screen on your phone to log in and pay. It never pays. |
+| **Calls** | "Prepare my call to the insurance": finds the number, gives a tap-to-call link and what to say. **You** make the call: no phone line is plugged in, and it can't claim otherwise. |
+| **News and research** | "News about X", "Dig into this question" (reads the top pages and cites them), interview prep (your mails + the company + its news), time anywhere, public holidays. |
+| **Health and speed** | `/sante` tells what works and what doesn't, with no key shown. `/vitesse` shows where the time goes. |
 | **Learns your habits** | Counts (no AI call, nothing leaves the server) what you ask and when. Answers adapt to it, and when you do the same safe thing at the same hour on 4+ days (music, weather, agenda, mail, news, tasks) it **offers** to do it by itself every day, with **Yes / No** buttons. Never the TV. `/habitudes` shows what it learned, `/habitudes effacer` wipes it. |
 | **Morning briefing** | `/matin 8:00 Paris`: every morning, weather, agenda, to-dos and unread mail in one message. Or just say "send me a summary every morning at 7:30". |
 | **Routines & lists** | "When I say *good night*, lower the volume and say good night": saved once, then one word runs the whole chain. Shopping lists (and any other list): "add milk to the groceries". Paste a link alone and get a 5-line summary. |
@@ -149,9 +153,14 @@ The API version defaults to `v23.0`; override it with `WA_API_VERSION` if Meta r
 | Models | Chosen for you | **Any OpenAI-compatible provider**, switch with `/model` |
 | Cost | Not public | Free tiers work (Groq, Gemini); or fully local with Ollama |
 | Source code | Closed | **Right here** |
+| Phone calls | Yes (per press coverage) | **No.** It prepares the call (number, tap-to-call link, what to say) and you call. Real calls need a paid telephony provider, not included |
+| Booking, groceries, disputes | Done for you (per press coverage) | Prepares everything in a real browser up to the payment, then hands you the screen. Sites that block bots (seen: Carrefour, Booking, Rome2Rio) can refuse it |
+| Setup | Sign up | `./install.sh` on a Linux box, plus a Telegram token and a model key. Still your server |
+| Power and reliability | A team and support | Free models with quotas, your hardware, no support. `/sante` tells you what broke |
 
 Instinct AI is a real product built by a funded team; Instonct is one person's weekend-turned-daily-driver.
 Pick Instonct if you want the same idea with your hands on the wheel.
+This table was written by the author of Instonct, and its protections have **not been audited independently**: an agent with access to a shell, your mail and your calendar stays a real risk.
 
 ## How it works
 
@@ -172,10 +181,10 @@ The bot is a small Python package (`bots/telegram-search/instonct/`), split by j
 | Foundations | `config`, `texts`, `core` | settings from `.env`, fixed texts, Redis + logging + Telegram/WhatsApp sending |
 | The AI | `llm`, `catalog`, `brain`, `dispatch` | providers and fallback chain, tool catalogue, agent loop, tool routing |
 | Home | `music`, `cast`, `television`, `sound` | music, Chromecast, Android TV remote, voice and volume |
-| Work | `mail`, `web`, `pagewatch`, `google` | mail and triage, browser agent, page watching, calendar |
-| Life | `media`, `life`, `system_tools` | images and files, habits, lists and routines, shell / files / HTTP tools |
+| Work | `mail`, `web`, `realbrowser`, `demarche`, `monde`, `pagewatch`, `google` | mail and triage, browser agent and real browser, procedures and calls, news and research, page watching, calendar |
+| Life | `media`, `life`, `recall`, `memlearn`, `system_tools` | images and files, habits, lists and routines, long memory, shell / files / HTTP tools |
 | Chat | `handlers`, `callbacks`, `commands` | Telegram messages, Yes/No buttons, free commands |
-| Background | `reminders`, `monitor`, `remote_access`, `runner` | reminder and watch loops, remote screen and Siri, entry point |
+| Background | `reminders`, `monitor`, `remote_access`, `health`, `perf`, `runner` | reminder and watch loops, remote screen and Siri, health check, timings, entry point |
 | Optional libraries | `extras`, `habits`, `whatsapp`, `tvremote`, `gcal`, `webagent`, `plus`, `screen`, `mailtriage` | loaded through `optional.py`: the bot keeps running if one is missing |
 
 Modules call each other as `module.function(...)` (resolved when called), so there are no import cycles to untangle.
@@ -195,8 +204,9 @@ GitHub Actions runs the same checks on every push.
 
 - **Private**: on Telegram the first person to send `/start` becomes the only owner; on WhatsApp only the numbers in `WA_OWNER`
   are answered. Everyone else is ignored.
-- **Nothing risky happens silently**: sending mail, submitting a form, deleting an event, running a command
-  or clicking a "Buy / Pay / Delete" button all ask for a **Yes / No** tap first.
+- **Nothing risky happens silently**: sending mail, submitting a form, deleting an event or running a command
+  all ask for a **Yes / No** tap first.
+- **It never pays**: "Buy / Pay / Checkout" buttons and card fields are refused by plain code, not left to the model. You get the screen and pay yourself.
 - **Passwords never go through the model**: site logins are stored in a `0600` file and filled in by plain code.
   Saving them is Telegram-only because the bot deletes your message right after (WhatsApp would keep it).
 - **Web pages are data, not orders**: text found on a page or in a mail cannot give instructions to the agent.
@@ -205,28 +215,22 @@ GitHub Actions runs the same checks on every push.
 
 ## Quick start
 
-You need a Linux box, Python 3, Redis, a **Telegram bot token** (from [@BotFather](https://t.me/BotFather)) and one
+You need a Debian or Ubuntu box, a **Telegram bot token** (from [@BotFather](https://t.me/BotFather)) and one
 **API key** from any provider above (Groq has a free tier).
 
 ```bash
 git clone https://github.com/LdwS123/Instonct.git && cd Instonct
-sudo apt install redis-server python3-venv espeak-ng mpv alsa-utils      # voice + music (optional)
-python3 -m venv ~/bots/venv && ~/bots/venv/bin/pip install -r bots/telegram-search/requirements.txt
-mkdir -p ~/bots/telegram-search && cp -r bots/telegram-search/bot.py bots/telegram-search/instonct ~/bots/telegram-search/
-
-cat > ~/bots/.env <<'EOF'
-TELEGRAM_TOKEN=...
-LLM_API_KEY=...
-# optional: LLM_BASE_URL, LLM_MODELS, GEMINI_API_KEY, STT_LANGUAGE=en, WA_* (WhatsApp)
-EOF
-chmod 600 ~/bots/.env
-
-sudo cp systemd/bot-telegram.service /etc/systemd/system/    # edit User= and paths first
-sudo systemctl daemon-reload && sudo systemctl enable --now bot-telegram
+./install.sh            # add --dry-run to see what it would do first
 ```
 
-Then open your bot in Telegram and send `/start`. Optional: Lightpanda in `~/lightpanda/lightpanda` for the
-browser, `MAIL_USER` / `MAIL_PASS` / `MAIL_HOST` for mail, and `scripts/google-auth.py` for Google Calendar.
+It installs the packages, asks for your keys (hidden as you type, tested before saving, stored `0600`), starts the service
+and checks that everything answers. Then **send `/start` to your bot right away, yourself**: the first person to do it becomes the only owner.
+
+`/sante` shows what still needs setting up. Optional: `MAIL_USER` / `MAIL_PASS` / `MAIL_HOST` for mail, `scripts/google-auth.py`
+for Google Calendar. The real browser needs `chromium`, `xvfb`, `openbox`, `x11vnc`, `novnc` and [Tailscale](https://tailscale.com); it takes about 800 MB of RAM
+while open, so the service allows up to 1500 MB (`MemoryMax` in the unit).
+
+Changing the keys later: edit `~/bots/.env`, then `sudo systemctl restart bot-telegram`. Check at any time with `python bot.py doctor`.
 
 ## Looking for...
 

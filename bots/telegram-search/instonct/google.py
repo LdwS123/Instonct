@@ -1,6 +1,8 @@
 """Google Calendar connection and the calendar tool."""
 
-from .core import db, is_wa, scrub, send, tg
+import re
+
+from .core import db, is_wa, norm, scrub, send, tg
 
 def google_prompt(chat_id, why):
     from . import gcal
@@ -25,6 +27,16 @@ def google_finish(chat_id, url):
         send(chat_id, "Ca n'a pas marche : " + scrub(e)[:150] + "\nEnvoie /google pour recommencer.")
 
 
+def _same_event(gcal, title, start):
+    """The event already there at this exact time with a similar title. Asked twice, the bot used to create two events, each with its own empty Meet room."""
+    when = gcal.parse_dt(start)
+    words = set(re.findall(r"\w{4,}", norm(title)))
+    for ev in gcal.list_events(1, when.strftime("%Y-%m-%d")):
+        if ev.get("debut") == when.strftime("%Y-%m-%d %H:%M") and words & set(re.findall(r"\w{4,}", norm(ev.get("titre", "")))):
+            return ev
+    return None
+
+
 def calendar_tool(name, args, links):
     from . import gcal
     if not gcal.connected():
@@ -44,8 +56,14 @@ def calendar_tool(name, args, links):
         if name == "calendar_delete":
             gcal.delete_event(str(args.get("id", "")))
             return {"resultat": "evenement supprime"}
+        twin = _same_event(gcal, str(args.get("title", "")), str(args.get("start", "")))
+        if twin:
+            return {"resultat": "existe deja, rien cree", "evenement": twin}
         ev = gcal.create_event(str(args.get("title", "")), str(args.get("start", "")), int(args.get("duration_min", 60) or 60),
                                invites, args.get("meet") is True, str(args.get("description", "")), str(args.get("location", "")))
-        return {"resultat": "evenement cree", "evenement": ev}
+        out = {"resultat": "evenement cree", "evenement": ev}
+        if args.get("meet") is True and not invites:
+            out["attention"] = "ce lien Meet est une salle vide que tu viens de creer, personne d'autre ne l'a. Il ne remplace jamais le lien envoye par un recruteur ou un invite."
+        return out
     except Exception as e:
         return {"erreur": scrub(e)[:200]}

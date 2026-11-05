@@ -9,7 +9,7 @@ import requests
 
 from .config import ALL_MODELS, GEMINI_KEY, MODELS, MODEL_API
 from .core import NET, db, log, norm, scrub
-from . import catalog
+from . import catalog, perf
 
 # ---------------------------------------------------------------- recherche + Gemini
 def web_search(query, n=5, kind="text"):
@@ -158,7 +158,10 @@ MAX_STEPS = 16
 # An answer that announces an action needs that action to have run in this turn.
 CLAIMS = ((re.compile(r"rappel (est |a ete |bien )?(programm|prevu|cree|enregistr)|voici le rappel|je te rappellerai", re.I), {"set_reminder", "schedule_task", "todo_add", "routine_save"}),
           (re.compile(r"(mis|mise|mises) a la corbeille|j.ai (supprime|efface|archive)|(ont|a) ete (supprime|efface|archive)", re.I), {"mail_manage", "mail_clean", "calendar_delete", "run_command", "todo_done"}),
-          (re.compile(r"j.ai envoye|(mail|message) (est |a ete |bien )?envoye", re.I), {"mail_send", "mail_reply", "run_command", "http_request"}))
+          (re.compile(r"j.ai envoye|(mail|message) (est |a ete |bien )?envoye", re.I), {"mail_send", "mail_reply", "run_command", "http_request"}),
+          (re.compile(r"j.ai (bien )?(appele|telephone)|je viens (d.appeler|de telephoner)", re.I), set()),                       # no phone line is plugged in: this is never true
+          (re.compile(r"j.ai (bien )?(paye|achete|commande)|je viens (de payer|d.acheter|de commander)|commande (est |a ete )?passee|paiement (est |a ete )?effectue", re.I), set()),   # paying is always the user's hand
+          (re.compile(r"j.ai reserve|je viens de reserver|c.est (bien |tout )?reserve\b(?! aux?\b)|billet (est |a ete )?reserve|reservation (est |a ete )?confirmee", re.I), {"calendar_create"}))
 FALSE_CLAIM = ("[Systeme] Tu viens d'annoncer une action alors que l'outil n'a pas ete appele dans ce tour. Appelle l'outil maintenant, "
                "ou corrige ta reponse et dis franchement que ce n'est pas fait.")
 
@@ -223,6 +226,7 @@ def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _r
             db.set(f"cool:{model}", 1, ex=60)
             continue
         log.info("llm %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
+        perf.add("modele", time.time() - t0)
         if r.status_code == 200:
             field = leaked_field(r)
             if field:                                  # le modele a recopie son brouillon interne (format gpt-oss brut) : on ne l'envoie JAMAIS a l'utilisateur

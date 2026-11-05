@@ -6,7 +6,7 @@ from datetime import datetime
 from .optional import habits
 from .texts import ORAL, BASE, PARTS, SYSTEM
 from .core import db, norm
-from . import media
+from . import media, recall
 
 TOOLS = [{"functionDeclarations": [
     {"name": "say_aloud", "description": "Fait PARLER A VOIX HAUTE le Mac mini ou la tele (selon la sortie choisie). UNIQUEMENT si l'utilisateur demande "
@@ -115,7 +115,9 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"minutes": {"type": "integer"}, "when": {"type": "string"}, "text": {"type": "string"}}, "required": ["text"]}},
     {"name": "remember", "description": "Retient durablement une info sur l'utilisateur ou ses preferences (memoire longue, survit aux redemarrages). "
      "Utilise-la des que l'utilisateur dit 'retiens', 'souviens-toi' ou donne une info personnelle utile.",
-     "parameters": {"type": "object", "properties": {"fact": {"type": "string"}}, "required": ["fact"]}},
+     "parameters": {"type": "object", "properties": {"fact": {"type": "string"},
+         "type": {"type": "string", "description": "profil (qui il est), preference, regle (ce qu'il t'ordonne de toujours ou jamais faire), projet (ce qu'il fait en ce moment), info"},
+         "remplace": {"type": "string", "description": "quelques mots de l'ancien souvenir si celui-ci le corrige"}}, "required": ["fact"]}},
     {"name": "forget", "description": "Oublie les souvenirs contenant ce texte.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "send_file", "description": "Envoie un fichier du Mac mini a l'utilisateur dans Telegram (chemin complet, 50 Mo max).",
@@ -166,9 +168,9 @@ TOOLS = [{"functionDeclarations": [
      "start = decalage en caracteres pour lire la suite d'une longue page.",
      "parameters": {"type": "object", "properties": {"url": {"type": "string"}, "start": {"type": "integer"}}, "required": ["url"]}},
     {"name": "browser", "description": "Navigateur web pilote pour agir sur les sites (formulaires, connexion, scraping) : action = open (url), read (start), forms, links, fill (selector, value), "
-     "choose (selector, value), click (selector), press (key, selector), login (site), extract (schema, name, append), download (url), close. Commence par open puis forms.",
+     "choose (selector, value), click (selector), press (key, selector), login (site), extract (schema, name, append), download (url), close. Commence par open puis forms. moteur=chrome : le vrai Chromium de l'ecran, pour les sites qui bloquent le navigateur leger et pour les paniers que l'utilisateur finira lui-meme.",
      "parameters": {"type": "object", "properties": {
-         "action": {"type": "string"}, "url": {"type": "string"}, "selector": {"type": "string", "description": "selecteur CSS donne par forms"},
+         "action": {"type": "string"}, "url": {"type": "string"}, "moteur": {"type": "string", "enum": ["leger", "chrome"]}, "selector": {"type": "string", "description": "selecteur CSS donne par forms"},
          "value": {"type": "string"}, "key": {"type": "string"}, "site": {"type": "string", "description": "nom d'un site enregistre avec /site"},
          "schema": {"type": "string", "description": "JSON texte : {\"titre\": [\"h2 a\"], \"prix\": [\".price\"]} (nom -> selecteur CSS)"},
          "name": {"type": "string", "description": "avec extract : nom du fichier CSV a creer"}, "append": {"type": "boolean"},
@@ -213,6 +215,24 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"amount": {"type": "number"}, "from": {"type": "string"}, "to": {"type": "string"}}, "required": ["from", "to"]}},
     {"name": "wake_on_lan", "description": "Reveille un ordinateur du reseau local a partir de son adresse MAC (Wake-on-LAN).",
      "parameters": {"type": "object", "properties": {"mac": {"type": "string"}}, "required": ["mac"]}},
+    {"name": "demarche", "description": "Dossier pour une vraie demarche en plusieurs etapes (voyage, courses, facture a contester...). action=start (type: voyage|courses|facture|autre, objectif, et depart, arrivee, date, retour, personnes, produits, texte) donne les liens et les etapes. "
+     "action=note (id, texte), list, resume (id), finish (id, texte), main (url facultative) : envoie a l'utilisateur le lien de l'ecran pour qu'il finisse lui-meme (connexion, paiement, validation).",
+     "parameters": {"type": "object", "properties": {
+         "action": {"type": "string"}, "id": {"type": "string"}, "type": {"type": "string"}, "objectif": {"type": "string"}, "texte": {"type": "string"}, "url": {"type": "string"},
+         "depart": {"type": "string"}, "arrivee": {"type": "string"}, "date": {"type": "string", "description": "AAAA-MM-JJ"}, "retour": {"type": "string", "description": "AAAA-MM-JJ"},
+         "personnes": {"type": "integer"}, "produits": {"type": "array", "items": {"type": "string"}}}, "required": ["action"]}},
+    {"name": "appel", "description": "Prepare un appel telephonique que l'UTILISATEUR passera : numero cliquable et texte a lire. Aucune ligne n'est branchee : tu ne peux pas appeler toi-meme.",
+     "parameters": {"type": "object", "properties": {"numero": {"type": "string"}, "qui": {"type": "string"}, "objet": {"type": "string"}, "script": {"type": "string"}}, "required": ["objet"]}},
+    {"name": "actu", "description": "Les dernieres nouvelles sur un sujet (titres, source, date, lien).",
+     "parameters": {"type": "object", "properties": {"sujet": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["sujet"]}},
+    {"name": "recherche_approfondie", "description": "Cherche sur le web puis lit vraiment les meilleures pages : pour comparer, enqueter, faire le point. Plus lent que web_search.",
+     "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}},
+    {"name": "heure_monde", "description": "L'heure qu'il est dans une ville du monde et son fuseau.",
+     "parameters": {"type": "object", "properties": {"ville": {"type": "string"}}, "required": ["ville"]}},
+    {"name": "feries", "description": "Les jours feries en France pour une annee.",
+     "parameters": {"type": "object", "properties": {"annee": {"type": "integer"}}}},
+    {"name": "prepare_entretien", "description": "Rassemble ce qu'il faut pour preparer un entretien avec une entreprise : le rendez-vous, les mails echanges, ce qu'elle fait, son actualite.",
+     "parameters": {"type": "object", "properties": {"entreprise": {"type": "string"}}, "required": ["entreprise"]}},
 ]}]
 
 
@@ -225,9 +245,10 @@ LIFE_TOOLS = {"routine_save", "routine_run", "routine_list", "routine_delete", "
 
 _PART_TOOLS = {"mail": {"mail_list"}, "agenda": {"calendar_list"}, "perso": {"suivi", "depenses", "dates", "carnet", "calcul", "video_texte", "reglage"},
                "media": {"play_music", "tv_remote", "show_remote", "generate_image", "find_image", "send_photo", "favorite_add", "say_aloud"},
-               "life": {"routine_save", "list_add", "morning_briefing"}}
+               "life": {"routine_save", "list_add", "morning_briefing"}, "plan": {"demarche", "appel"}}
 # These two sections explain tools that are always offered, so they are chosen from the words of the request.
 _PART_WORDS = {"browser": r"site|navig|\bpage|formulaire|scrap|connecte|login|http|www|\.com|\.fr|reserv|commande|surveill|\bprix|clique|remplis|achete",
+               "plan": r"organise|prepare|compare|planifie|trouve.moi|\bpuis\b|ensuite|voyage|billet|conteste|procedure|etapes",
                "tech": r"install|script|\bcode|python|fichier|pdf|graphique|telecharge|video|\bapi\b|meteo|convert|\bocr\b|\bqr\b|excel|word|serveur|donnees|analys|itineraire|adresse|tableau"}
 _SMALL_TALK = re.compile(r"^(?:salut|bonjour|bonsoir|coucou|hello|hey|yo|merci|merci beaucoup|merci bien|ca va|comment ca va|tu vas bien|ca roule|a plus|a demain|"
                          r"bonne journee|bonne soiree|bien joue|bravo|super|genial|cool|lol|mdr)(?: steve)?$")
@@ -249,7 +270,7 @@ def _prompt_text(toolset, text):
 
 
 def build_system(oral=False, toolset=None, text=""):
-    memory = list(db.hvals("memory"))[-80:]
+    memory = recall.for_prompt(text)
     now = datetime.now()
     jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
     quand = f"\n\nNous sommes {jours[now.weekday()]} {now:%d/%m/%Y}, il est {now:%H:%M}. Donne l'heure et la date directement, sans outil."
@@ -270,7 +291,7 @@ def build_system(oral=False, toolset=None, text=""):
 
 
 def _short(d):
-    if d["name"] in ("tv_remote", "run_command", "schedule_task", "browser", "page_watch"):
+    if d["name"] in ("tv_remote", "run_command", "schedule_task", "browser", "page_watch", "demarche"):
         return d
     desc = d["description"]
     if len(desc) > 140:
@@ -313,6 +334,13 @@ TOOL_GROUPS = [
     (r"calcul|combien (?:fait|ca fait)|\d\s*%|pourcent|convertis|en miles|en km|en kg|en lb|fahrenheit|celsius|\d\s*[x*/+^]\s*\d", {"calcul"}),
     (r"youtube\.com|youtu\.be|video|sous.?titre|resume cette|transcri", {"video_texte"}),
     (r"reglage|desactive|active\b|coupe|automatique|chaque nuit|chaque soir|bilan|rappel de rdv|menage auto", {"reglage"}),
+    (r"actu|news|nouvelles|quoi de neuf|journal|infos? sur|presse", {"actu"}),
+    (r"approfond|recherche sur|renseigne|enquete|compare|etude|analyse complete|dossier sur", {"recherche_approfondie"}),
+    (r"quelle heure|heure a |heure en |fuseau|decalage horaire", {"heure_monde"}),
+    (r"ferie|pont\b|jours? off", {"feries"}),
+    (r"entretien|interview|prepar|recrut|fiche sur", {"prepare_entretien"}),
+    (r"voyage|billet|vol\b|vols\b|avion|train|hotel|reserv|courses|commande|livraison|conteste|facture|reclam|remboursement|demarche|panier|supermarche|carrefour|auchan", {"demarche"}),
+    (r"appelle|appel\b|telephone|telephoner|coup de fil", {"appel"}),
     (r"matin|briefing|resume du jour|chaque jour|reveil|habitude|appris|connais", {"morning_briefing", "habits"}),
 ]
 CORE_TOOLS = {"run_command", "python_run", "read_file", "write_file", "http_request", "web_search", "fetch_url", "browser", "remember", "forget",

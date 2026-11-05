@@ -17,3 +17,4 @@ yt-dlp
 # pandas
 # matplotlib
 # system packages: sudo apt install ffmpeg tesseract-ocr tesseract-ocr-fra pandoc poppler-utils imagemagick
+websocket-client                 # drives the real browser window (moteur=chrome)

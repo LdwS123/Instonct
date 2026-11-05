@@ -7,7 +7,7 @@ import re
 from .config import ALL_MODELS, GEMINI_KEY, HISTORY_TTL, HISTORY_TURNS, STT_API_KEY
 from .texts import SILENT
 from .core import db
-from . import catalog, chatlog, dispatch, guard, llm, sound
+from . import catalog, chatlog, dispatch, guard, llm, perf, recall, sound
 
 HISTORY_CHARS = 6000           # what is older is still found with chat_search
 LOOP_CHARS = 20000             # above this, one call eats most of the free tier's minute
@@ -48,7 +48,8 @@ def agent_groq(chat_id, question, oral=False, taint=False):
     used_tools, nudged, checked, seen, ran = False, False, False, {}, set()
     context = " ".join([question] + [h["content"] for h in history[-2:]])
     toolset = [] if catalog.is_small_talk(question) and not taint else catalog.select_tools(context)
-    messages = [{"role": "system", "content": catalog.build_system(oral, toolset, context)}] + history + [{"role": "user", "content": question}]
+    said_before = "" if not toolset or taint else recall.past(chat_id, question, [h["content"] for h in history])
+    messages = [{"role": "system", "content": catalog.build_system(oral, toolset, context) + said_before}] + history + [{"role": "user", "content": question}]
     for _ in range(llm.MAX_STEPS):
         _squeeze(messages)
         resp = llm.llm_call(messages, question, oral, toolset=toolset)
@@ -60,7 +61,7 @@ def agent_groq(chat_id, question, oral=False, taint=False):
             answer = llm.clean_answer(msg.get("content"))
             if not used_tools and not nudged and not oral and llm.REFUSAL.search(answer or ""):
                 nudged, toolset = True, catalog.GROQ_TOOLS    # il refuse sans avoir essaye : tous les outils, et on le renvoie chercher une voie (une fois)
-                messages[0]["content"] = catalog.build_system(oral)
+                messages[0]["content"] = catalog.build_system(oral) + said_before
                 messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": llm.NUDGE}]
                 continue
             if not checked and llm.false_claim(answer, ran):
@@ -158,7 +159,8 @@ def ask(chat_id, question, oral=False, taint=False):
 def ask_voice(chat_id, audio, mime):
     """Message vocal : Gemini ecoute, comprend, agit si besoin et repond (un seul passage)."""
     if STT_API_KEY:
-        text = sound.transcribe(audio)
+        with perf.timed("ecoute"):
+            text = sound.transcribe(audio)
         if text:
             return text, ask(chat_id, text, oral=True)
     instruction = ("Voici un message vocal de l'utilisateur : fais ce qu'il demande, puis reponds-lui. Ta reponse finale suit ce "

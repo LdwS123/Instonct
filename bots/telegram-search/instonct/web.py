@@ -72,6 +72,16 @@ SITES_FILE = os.path.expanduser("~/bots/sites.json")
 EXPORTS = os.path.expanduser("~/exports")
 SENSITIVE_BTN = re.compile(r"acheter|payer|paiement|commander|valider|confirmer|envoyer|supprimer|reserver|souscrire|publier|"
                            r"buy|pay|order|submit|delete|remove|send|confirm|checkout|purchase|book|subscribe|post|sign", re.I)
+# Paying is always the user's own gesture: these buttons and card fields are refused outright, with no Yes button that could validate them by mistake.
+PAYMENT_BTN = re.compile(r"\b(?:payer|paiement|regler|acheter|achat immediat|commander|passer (?:la |ma |une )?commande|valider (?:la |ma |mon )?(?:commande|panier|paiement)|"
+                         r"confirmer (?:la |ma |et )?(?:commande|reservation|payer|paiement)|finaliser|pay|payment|buy|purchase|place (?:your |my )?order|complete (?:your |my )?(?:order|booking|purchase)|"
+                         r"checkout|souscrire|s.abonner|subscribe)\b", re.I)
+CARD_FIELD = re.compile(r"cc-|card|carte|cvv|cvc|csc|iban|bic\b|expir|cryptogramme", re.I)
+_CARD_PROBE = "(()=>{const e=document.querySelector(%s);return e?[e.autocomplete,e.name,e.id,e.placeholder,e.getAttribute('aria-label')].join(' '):''})()"
+_FORM_HAS_CARD = ("(()=>{const e=document.querySelector(%s);const r=(e&&e.closest('form'))||document;return [...r.querySelectorAll('input')].some(i=>"
+                  "/cc-|card|carte|cvv|cvc|csc|iban|cryptogramme/i.test([i.autocomplete,i.name,i.id,i.placeholder].join(' ')))?'oui':'non'})()")
+HUMAN_CHECK = re.compile(r"captcha|verify you are human|verifiez que vous etes humain|je ne suis pas un robot|not a robot|just a moment|acces refuse|access denied|access to this page has been denied|datadome|unusual traffic|activite inhabituelle", re.I)
+PAY_HANDOVER = ("refuse : le paiement, c'est toujours l'utilisateur. Ne tente aucune autre voie. Dis ce qui est pret (panier, prix) et passe-lui la main avec demarche action=main.")
 _web = {"main": None, "watch": None}
 
 
@@ -115,6 +125,8 @@ def web_page(b, start=0, n=3000, strict=True):
     except Exception:
         forms = 0
     out = {"adresse": url, "texte": md[start:start + n], "longueur_totale": len(md), "formulaires": forms}
+    if len(md) < 3000 and HUMAN_CHECK.search(norm(md)):
+        out["blocage"] = ("le site verifie que tu n'es pas un robot ou te refuse. Ne contourne jamais ca : essaie un autre site ou passe la main a l'utilisateur (demarche action=main).")
     if len(md) > start + n:
         out["suite"] = f"relance read avec start={start + n}"
     return out
@@ -134,6 +146,8 @@ def web_elements(b):
             sel = '[id="%s"]' % e["id"]
         elif e.get("elementName") and tag in ("input", "select", "textarea"):
             sel = '%s[name="%s"]' % (tag, e["elementName"]) + ('[value="%s"]' % e["value"] if itype in ("radio", "checkbox") else "")
+        elif e.get("selector"):
+            sel = e["selector"]
         else:
             sel = json.loads(b.call("nodeDetails", backendNodeId=e["backendNodeId"])).get("selector", "?")
         val = "" if itype == "password" else str(e.get("value") or "")[:30]
@@ -165,10 +179,18 @@ def web_confirm(chat_id, b, p, info):
     callbacks.send_confirm(chat_id, "\n".join(lines) + "\n\nC'est bon ?", callbacks.cmd_id(json.dumps(p)), "Valider")
 
 
+def _engine(moteur):
+    """The light browser by default, the real Chromium (the one the user can take over) for moteur=chrome."""
+    if moteur == "chrome":
+        from . import realbrowser
+        return realbrowser.DRIVER
+    return web_browser()
+
+
 def web_run_pending(chat_id, p):
     """Appelee quand l'utilisateur appuie sur Oui : fait le clic (ou la touche) puis montre la page obtenue."""
     try:
-        b = web_browser()
+        b = _engine(p.get("moteur"))
         if p["action"] == "press":
             b.call("press", key=p["key"], **({"selector": p["selector"]} if p.get("selector") else {}))
         else:
@@ -248,7 +270,8 @@ def tool_browser(chat_id, args, links):
     act = str(args.get("action", "")).lower()
     sel = str(args.get("selector", "") or "")
     links.append("(page web)")                   # contenu externe : la conversation devient "sensible"
-    b = web_browser()
+    moteur = "chrome" if str(args.get("moteur", "")).lower() == "chrome" else ""
+    b = _engine(moteur)
     try:
         if act == "open":
             url = str(args.get("url", ""))
@@ -274,6 +297,8 @@ def tool_browser(chat_id, args, links):
             val = str(args.get("value", ""))
             if kind.endswith("password"):
                 return {"erreur": "ne remplis jamais un mot de passe toi-meme : utilise login avec le nom d'un site enregistre"}
+            if CARD_FIELD.search(b.js(_CARD_PROBE % json.dumps(sel))):
+                return {"erreur": PAY_HANDOVER}
             if kind.startswith("select"):
                 b.call("selectOption", selector=sel, value=val)
             elif kind.endswith(("checkbox", "radio")):
@@ -283,7 +308,7 @@ def tool_browser(chat_id, args, links):
             return {"resultat": "rempli"}
         if act in ("click", "press"):
             key = str(args.get("key", "Enter"))
-            if act == "press" and key.lower() != "enter":
+            if act == "press" and key.lower() not in ("enter", "return", "numpadenter", " ", "space"):
                 b.call("press", key=key, **({"selector": sel} if sel else {}))
                 return {"resultat": "touche appuyee"}
             if not sel:
@@ -291,13 +316,17 @@ def tool_browser(chat_id, args, links):
             info = web_probe(b, sel)
             if info["kind"] == "none":
                 return {"erreur": "element introuvable : utilise forms pour voir les boutons"}
-            p = {"action": act, "selector": sel, **({"key": key} if act == "press" else {})}
+            if PAYMENT_BTN.search(norm(info.get("text", ""))) or (info["kind"] != "link" and b.js(_FORM_HAS_CARD % json.dumps(sel)).strip() == "oui"):
+                return {"erreur": PAY_HANDOVER}
+            p = {"action": act, "selector": sel, **({"key": key} if act == "press" else {}), **({"moteur": moteur} if moteur else {})}
             if info["kind"] == "form" or (info["kind"] == "btn" and SENSITIVE_BTN.search(info.get("text", ""))):
                 web_confirm(chat_id, b, p, info)
                 return {"statut": "en attente : l'utilisateur doit appuyer sur Oui (le bot lui a envoye les boutons). Dis-lui que tu attends, ne rappelle pas cet outil."}
             b.call("click", selector=sel)
             return web_page(b)
         if act == "login":
+            if moteur:
+                return {"erreur": "avec moteur=chrome l'utilisateur se connecte lui-meme : passe-lui la main avec demarche action=main"}
             return web_login(b, str(args.get("site", "")))
         if act == "extract":
             web_here(b)

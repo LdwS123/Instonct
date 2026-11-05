@@ -26,6 +26,11 @@ def connexion_command(chat_id, arg):
         screen.stop()
         return "Ecran ferme. Tes connexions restent gardees sur le Mac mini."
     url = next((u for k, u in SCREEN_SITES.items() if k in a), None) or (arg.strip() if re.match(r"https?://\S+$", arg.strip()) else "https://www.linkedin.com/login")
+    return open_screen(chat_id, url)
+
+
+def open_screen(chat_id, url):
+    """Sends the link and the steps, and returns the line holding the screen's password (or why it could not open)."""
     r = screen.start(15, url)
     if not r.get("ok"):
         return "Je n'arrive pas a ouvrir l'ecran : " + str(r.get("erreur", "?"))

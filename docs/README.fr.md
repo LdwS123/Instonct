@@ -44,7 +44,11 @@ presque n'importe quoi : un Raspberry Pi, un vieux portable, un petit VPS.
 | **Agenda** | « Mets dentiste jeudi à 15 h », « Ajoute un Google Meet avec Marie ». Signale les conflits. |
 | **Navigateur** | « Va sur news.ycombinator.com et donne-moi un CSV des 30 premiers titres », « Connecte-moi au site de ma salle de sport ». |
 | **Surveillance** | « Préviens-moi quand cette page affichera *en stock*. » Vérifie toutes les 10 minutes ou plus, ne vous écrit qu'en cas de changement. |
-| **Mémoire** | Retient vos préférences pour de bon, et apprend quand vous le corrigez. |
+| **Mémoire** | Retient qui vous êtes, vos préférences et vos projets, apprend de ce que vous écrivez (vos mots seulement), corrige les faits dépassés et ressort ce que vous avez déjà dit sur un sujet. En local, sans base vectorielle. `/memoire` la montre. |
+| **Vraies démarches** | « Réserve-moi un week-end à Lisbonne », « Commande cette liste », « Conteste cette facture » : garde un dossier qui tient sur plusieurs jours, ouvre un vrai navigateur, remplit le panier ou le formulaire et **s'arrête au paiement** : vous recevez l'écran sur votre téléphone pour vous connecter et payer. Il ne paie jamais. |
+| **Appels** | « Prépare mon appel à l'assurance » : trouve le numéro, donne un lien pour appeler d'un geste et quoi dire. C'est **vous** qui appelez : aucune ligne n'est branchée, et il ne peut pas prétendre le contraire. |
+| **Actu et recherche** | « Les nouvelles sur X », « Creuse cette question » (lit les meilleures pages et les cite), préparation d'entretien (vos mails + l'entreprise + son actu), heure partout, jours fériés. |
+| **Santé et vitesse** | `/sante` dit ce qui marche et ce qui ne marche pas, sans montrer de clé. `/vitesse` montre où part le temps. |
 | **Routines** | Un briefing matinal (agenda, mails, météo, votre priorité n° 1), des rappels, des tâches planifiées. |
 | **Voix** | Messages vocaux en entrée (Whisper), messages vocaux ou réponses parlées en sortie. |
 | **Fichiers** | Envoyez-lui une photo, un PDF ou un CSV et posez-lui des questions dessus. Il peut aussi renvoyer des fichiers. |
@@ -133,9 +137,14 @@ La version de l'API est `v23.0` par défaut ; remplacez-la avec `WA_API_VERSION`
 | Modèles | Choisis pour vous | **N'importe quel fournisseur compatible OpenAI**, changement avec `/model` |
 | Coût | Non communiqué | Les offres gratuites suffisent (Groq, Gemini) ; ou 100 % local avec Ollama |
 | Code source | Fermé | **Juste ici** |
+| Appels téléphoniques | Oui (d'après la presse) | **Non.** Il prépare l'appel (numéro, lien pour appeler, quoi dire) et vous appelez. De vrais appels demandent un opérateur payant, non inclus |
+| Réservations, courses, litiges | Faits pour vous (d'après la presse) | Prépare tout dans un vrai navigateur jusqu'au paiement, puis vous passe l'écran. Les sites qui bloquent les robots (vus : Carrefour, Booking, Rome2Rio) peuvent le refuser |
+| Installation | S'inscrire | `./install.sh` sur une machine Linux, plus un jeton Telegram et une clé de modèle. Ça reste votre serveur |
+| Puissance et fiabilité | Une équipe et un support | Modèles gratuits avec quotas, votre matériel, pas de support. `/sante` vous dit ce qui est en panne |
 
 Instinct AI est un vrai produit conçu par une équipe financée ; Instonct est le projet d'un week-end d'une seule personne, devenu son outil du quotidien.
 Choisissez Instonct si vous voulez la même idée, mais avec les mains sur le volant.
+Ce tableau est écrit par l'auteur d'Instonct, et ses protections **n'ont pas été auditées de façon indépendante** : un agent qui a accès à un shell, à vos mails et à votre agenda reste un vrai risque.
 
 ## Comment ça marche
 
@@ -150,8 +159,9 @@ Choisissez Instonct si vous voulez la même idée, mais avec les mains sur le vo
 
 - **Privé** : sur Telegram, la première personne qui envoie `/start` devient l'unique propriétaire ; sur WhatsApp, seuls les numéros de `WA_OWNER`
   reçoivent une réponse. Tous les autres sont ignorés.
-- **Rien de risqué ne se passe en silence** : envoyer un mail, valider un formulaire, supprimer un événement, exécuter une commande
-  ou cliquer sur un bouton « Acheter / Payer / Supprimer » demandent tous d'abord un appui sur **Oui / Non**.
+- **Rien de risqué ne se fait en douce** : envoyer un mail, soumettre un formulaire, supprimer un événement ou lancer une commande
+  demandent tous d'abord un appui sur **Oui / Non**.
+- **Il ne paie jamais** : les boutons « Acheter / Payer / Commander » et les champs de carte sont refusés par du code simple, pas laissés au modèle. Vous recevez l'écran et vous payez vous-même.
 - **Les mots de passe ne passent jamais par le modèle** : les identifiants de connexion aux sites sont stockés dans un fichier `0600` et saisis par du code ordinaire.
   Leur enregistrement est réservé à Telegram, car le bot supprime votre message juste après (WhatsApp le conserverait).
 - **Les pages web sont des données, pas des ordres** : le texte trouvé sur une page ou dans un mail ne peut pas donner d'instructions à l'agent.
@@ -160,28 +170,22 @@ Choisissez Instonct si vous voulez la même idée, mais avec les mains sur le vo
 
 ## Démarrage rapide
 
-Il vous faut une machine Linux, Python 3, Redis, un **jeton de bot Telegram** (obtenu auprès de [@BotFather](https://t.me/BotFather)) et une
+Il vous faut une machine Debian ou Ubuntu, un **jeton de bot Telegram** (obtenu auprès de [@BotFather](https://t.me/BotFather)) et une
 **clé d'API** de n'importe quel fournisseur ci-dessus (Groq propose une offre gratuite).
 
 ```bash
 git clone https://github.com/LdwS123/Instonct.git && cd Instonct
-sudo apt install redis-server python3-venv espeak-ng mpv alsa-utils      # voix + musique (facultatif)
-python3 -m venv ~/bots/venv && ~/bots/venv/bin/pip install -r bots/telegram-search/requirements.txt
-mkdir -p ~/bots/telegram-search && cp -r bots/telegram-search/bot.py bots/telegram-search/instonct ~/bots/telegram-search/
-
-cat > ~/bots/.env <<'EOF'
-TELEGRAM_TOKEN=...
-LLM_API_KEY=...
-# facultatif : LLM_BASE_URL, LLM_MODELS, GEMINI_API_KEY, STT_LANGUAGE=en, WA_* (WhatsApp)
-EOF
-chmod 600 ~/bots/.env
-
-sudo cp systemd/bot-telegram.service /etc/systemd/system/    # modifiez d'abord User= et les chemins
-sudo systemctl daemon-reload && sudo systemctl enable --now bot-telegram
+./install.sh            # ajoutez --dry-run pour voir d'abord ce qu'il ferait
 ```
 
-Ouvrez ensuite votre bot dans Telegram et envoyez `/start`. En option : Lightpanda dans `~/lightpanda/lightpanda` pour le
-navigateur, `MAIL_USER` / `MAIL_PASS` / `MAIL_HOST` pour le mail, et `scripts/google-auth.py` pour Google Agenda.
+Il installe les paquets, demande vos clés (cachées à la frappe, testées avant d'être enregistrées, en `0600`), démarre le service
+et vérifie que tout répond. Ensuite **envoyez `/start` à votre bot tout de suite, vous-même** : la première personne qui le fait en devient l'unique propriétaire.
+
+`/sante` montre ce qu'il reste à régler. En option : `MAIL_USER` / `MAIL_PASS` / `MAIL_HOST` pour le mail, `scripts/google-auth.py`
+pour Google Agenda. Le vrai navigateur demande `chromium`, `xvfb`, `openbox`, `x11vnc`, `novnc` et [Tailscale](https://tailscale.com) ; il prend environ 800 Mo de RAM
+quand il est ouvert, donc le service a droit à 1500 Mo (`MemoryMax` dans le fichier du service).
+
+Pour changer les clés plus tard : modifiez `~/bots/.env`, puis `sudo systemctl restart bot-telegram`. Pour vérifier à tout moment : `python bot.py doctor`.
 
 ## Vous cherchez...
 

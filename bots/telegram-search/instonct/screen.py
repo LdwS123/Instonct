@@ -21,6 +21,7 @@ STATE = os.path.join(HOME, "bots", "screen.json")
 DISPLAY = ":99"
 VNC_PORT = 5900
 WEB_PORT = 6080
+DEBUG_PORT = 9223                # local only: lets the bot work in the window the user sees (realbrowser.py)
 NOVNC_DIRS = ("/usr/share/novnc", "/usr/share/novnc/www")
 MAX_MINUTES = 60
 
@@ -139,7 +140,7 @@ def start(minutes=15, url="https://www.linkedin.com/login"):
         time.sleep(1.2)
         run(["openbox"])
         run([chrome, "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", f"--user-data-dir={PROFILE}", "--window-position=0,0",
-             "--window-size=720,1300", "--test-type", "--no-first-run", "--no-default-browser-check", "--disable-features=Translate", url])
+             "--window-size=720,1300", "--test-type", f"--remote-debugging-port={DEBUG_PORT}", "--remote-debugging-address=127.0.0.1", "--no-first-run", "--no-default-browser-check", "--disable-features=Translate", url])
         run(["x11vnc", "-display", DISPLAY, "-localhost", "-rfbport", str(VNC_PORT), "-rfbauth", pwfile, "-forever", "-shared", "-noxdamage", "-quiet"])
         time.sleep(1.0)
         run(["websockify", "--web", novnc, f"{ip}:{WEB_PORT}", f"localhost:{VNC_PORT}"])

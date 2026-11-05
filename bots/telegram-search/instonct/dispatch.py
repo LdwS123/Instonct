@@ -8,17 +8,29 @@ import time
 import uuid
 from datetime import datetime
 
-from . import meetings, plus
+from . import demarche, meetings, monde, perf, plus, recall
 from .optional import tvremote
 from .core import db, log, norm, scrub
 from . import catalog, chatlog, commands, google, guard, life, linkedin, llm, mail, mailindex, media, monitor, music, pagewatch, reminders, sound, system_tools, television, web
 
 def run_tool(chat_id, name, args, links):
+    t0 = time.time()
+    try:
+        return _run_tool(chat_id, name, args, links)
+    finally:
+        perf.add("outil:" + name, time.time() - t0)
+
+
+def _run_tool(chat_id, name, args, links):
     log.info("outil %s %s", name, json.dumps(args, ensure_ascii=False)[:100])
     life.note_tool(name, args)
     try:
         if name in catalog.LIFE_TOOLS:
             return life.tool_life(chat_id, name, args, links)
+        if name in demarche.NAMES:
+            return demarche.tool(chat_id, name, args, links)
+        if name in monde.NAMES:
+            return monde.tool(name, args, links)
         if name == "show_remote":
             television.send_remote(chat_id)
             return {"resultat": "telecommande affichee dans le chat"}
@@ -166,17 +178,11 @@ def run_tool(chat_id, name, args, links):
         if name == "remember":
             if links:                                       # du contenu externe a ete lu : il pourrait avoir dicte ce "souvenir" (relu a chaque message)
                 return {"erreur": "refuse : du contenu externe (web, mail, fichier) a ete lu dans cette conversation. Demande a l'utilisateur de le redire dans un nouveau message."}
-            db.hset("memory", uuid.uuid4().hex[:8], str(args.get("fact", ""))[:300])
-            return {"resultat": "retenu"}
+            return recall.add(args.get("fact"), args.get("type"), args.get("remplace"))
         if name == "forget":
             if no := guard.refusal("forget"):
                 return no
-            n = 0
-            for k, v in db.hgetall("memory").items():
-                if str(args.get("text", "")).lower() in v.lower():
-                    db.hdel("memory", k)
-                    n += 1
-            return {"resultat": f"{n} souvenir(s) oublie(s)"}
+            return {"resultat": f"{recall.forget(args.get('text'))} souvenir(s) oublie(s)"}
         if name == "send_file":
             path = system_tools._path(args.get("path", ""), system_tools.WORK)
             if system_tools.SECRET_PATH.search(path) or not os.path.isfile(path):

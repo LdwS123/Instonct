@@ -144,7 +144,7 @@ def test_facts_come_from_the_users_own_words_only(archive, monkeypatch):
     assert memlearn.learn_once(7) == 1
     given = seen[0][1]["content"]
     assert "customer success" in given and "bot secrete" not in given and "fichier" not in given and "Tache" not in given and "autre personne" not in given
-    assert db.hvals("memory") == ["Il cherche un poste de customer success a Paris."]
+    assert db.hvals("memory") == ["[info] Il cherche un poste de customer success a Paris."]
 
 
 def test_each_message_is_read_once(archive, monkeypatch):
@@ -188,12 +188,12 @@ def test_a_bad_answer_stores_nothing(archive, monkeypatch, content):
     assert memlearn.learn_once(7) == 0 and db.hlen("memory") == 0
 
 
-def test_it_runs_every_six_hours_and_can_be_turned_off(archive, monkeypatch):
+def test_it_runs_every_hour_and_can_be_turned_off(archive, monkeypatch):
     runs = []
     monkeypatch.setattr(memlearn, "learn_once", lambda chat: runs.append(chat))
     monitor.check_learn(7)
     monitor.check_learn(7)
-    assert runs == [7] and db.ttl("memlearn:next") > 20000
+    assert runs == [7] and db.ttl("memlearn:next") > 3000
     db.delete("memlearn:next")
     plus.t_reglage(db, {"nom": "memoire", "actif": False})
     monitor.check_learn(7)
