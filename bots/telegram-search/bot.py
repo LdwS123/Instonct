@@ -3163,7 +3163,7 @@ def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _r
             continue
         log.info("llm %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
         if r.status_code == 200:
-            if re.search(r"<\|(?:channel|call|start|end|message|return)\|>", r.text):        # le modele a recopie son brouillon interne (format gpt-oss brut) : on ne l'envoie JAMAIS a l'utilisateur
+            if re.search(r"<\|(?:channel|call|start|end|message|return)\|>", r.text.replace("\\u003c", "<").replace("\\u003e", ">")):        # le modele a recopie son brouillon interne (format gpt-oss brut) : on ne l'envoie JAMAIS a l'utilisateur
                 log.warning("llm %s : reponse avec brouillon interne, on passe au suivant", model)
                 db.setex(f"cool:{model}", 600, 1)
                 continue
