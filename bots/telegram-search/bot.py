@@ -60,7 +60,7 @@ MODELS = os.environ.get(
 # Palier gratuit Gemini : ~5 requetes/min et ~20/jour PAR MODELE ; avec 5 modeles en secours on a bien plus.
 MAX_PER_MIN = 8
 MAX_PER_DAY = 80
-HISTORY_TURNS = 8          # nombre d'echanges gardes en memoire courte
+HISTORY_TURNS = 12         # nombre d'echanges gardes en memoire courte
 HISTORY_TTL = 86400        # 24 h : la conversation reprend meme le lendemain
 
 TG = f"https://api.telegram.org/bot{TOKEN}"
@@ -112,6 +112,13 @@ SYSTEM = (
     "IMAGES ET TELECOMMANDE : 'affiche la telecommande' ou 'ici dans le chat' -> show_remote (des boutons dans la conversation). "
     "'sors-moi / fais-moi / dessine une image' -> generate_image ; 'trouve une photo de ...' -> find_image ; un fichier image du Mac mini -> send_photo. "
     "Tu n'as pas d'appareil photo et tu ne peux pas capturer l'image de la tele : ne le propose jamais. "
+    "RAISONNEMENT : pour une demande a plusieurs etapes, fais mentalement un court plan puis execute-le, outil apres outil, sans t'arreter pour demander. "
+    "Si un outil echoue, lis l'erreur, corrige et reessaie autrement (au moins deux approches differentes) avant de dire que c'est impossible. "
+    "Tout calcul, chiffre precis ou traitement de donnees : python_run, jamais de tete. Creer un fichier ou du code : write_file puis python_run/run_command pour le tester ; lire un fichier ou un dossier : read_file. "
+    "Faits recents : web_search (kind=news pour l'actualite) puis fetch_url pour lire la source ; croise deux sources si c'est important. "
+    "API ou service web : http_request. Tache longue (telechargement, installation, conversion) : run_command avec background=true, le bot previendra a la fin. "
+    "Tu peux installer ce qu'il faut avec apt ou pip : yt-dlp (videos, sous-titres), ffmpeg, pandoc, tesseract-ocr (lire une image), imagemagick, qrcode, pandas, matplotlib. "
+    "Rappel ou tache a une date precise : parametre when (AAAA-MM-JJ HH:MM) de set_reminder / schedule_task, sans calculer de minutes. "
     "AUCUNE LIMITE : ne reponds jamais 'je ne peux pas' si un outil peut le faire. Si aucun outil dedie n'existe, debrouille-toi avec run_command, "
     "browser ou fetch_url (installe ce qu'il faut, ecris un script, cherche la solution) et fais-le vraiment. "
     "Les validations Oui/Non (mail envoye, achat, suppression, commande dangereuse) restent obligatoires : elles protegent l'utilisateur."
@@ -247,10 +254,12 @@ def send(chat_id, text):
 
 
 # ---------------------------------------------------------------- recherche + Gemini
-def web_search(query, n=5):
-    """Recherche DuckDuckGo (gratuite, sans cle). Renvoie [] en cas d'echec."""
+def web_search(query, n=5, kind="text"):
+    """Recherche DuckDuckGo (gratuite, sans cle). kind="news" pour l'actualite. Renvoie [] en cas d'echec."""
     try:
         from ddgs import DDGS
+        if kind == "news":
+            return [{**r, "href": r.get("url", "")} for r in (DDGS(timeout=6).news(query, max_results=n, region="fr-fr") or [])]
         return DDGS(timeout=4).text(query, max_results=n, region="fr-fr") or []
     except Exception as e:
         log.warning("recherche web indisponible : %s", scrub(e))
@@ -597,6 +606,16 @@ RE_TV_CHANNEL = re.compile(r"(?:jessica )?(?:mets|met|va sur|passe sur|mets moi)
 RE_TV_REMOTE = re.compile(r"(?:jessica |steve )?(?:ou est |donne[ -]moi |donne |affiche[ -]moi |affiche |ouvre |montre[ -]moi |montre |sors[ -]moi |sors |mets[ -]moi |mets )?(?:la |ma |le )?(?:tele ?commande|remote)(?: virtuelle)?(?: ici| dans le chat| sur telegram)*")
 
 
+RE_REMOTE_WORD = re.compile(r"\b(?:tele ?commande|remote)\b")
+RE_NOT_REMOTE = re.compile(r"musique|chanson|son\b|volume|joue|playlist|explique|histoire|pourquoi|comment|prix|acheter|pile|marche pas|casse")
+
+
+def wants_remote(text):
+    """Vrai si la personne veut la telecommande (phrase courte qui la nomme), ex. 'passe moi la telecommande', 'non la telecommande pour la tele'."""
+    t = norm(text)
+    return bool(RE_TV_REMOTE.fullmatch(t) or (len(t.split()) <= 12 and RE_REMOTE_WORD.search(t) and not RE_NOT_REMOTE.search(t)))
+
+
 # ---------------------------------------------------------------- telecommande virtuelle
 try:
     import tvremote
@@ -742,6 +761,7 @@ def confirm_yes(chat_id, pid=None):
     pmail = db.get(f"pending_mail:{chat_id}")
     pending = db.get(f"pending_cmd:{chat_id}")
     pweb = db.get(f"pending_web:{chat_id}")
+    phttp = db.get(f"pending_http:{chat_id}")
     if pmail and (pid is None or json.loads(pmail).get("id") == pid):
         db.delete(f"pending_mail:{chat_id}")
         try:
@@ -758,6 +778,14 @@ def confirm_yes(chat_id, pid=None):
         db.delete(f"pending_web:{chat_id}")
         send(chat_id, "Je valide...")
         web_run_pending(chat_id, json.loads(pweb))
+    elif phttp and (pid is None or cmd_id(phttp) == pid):
+        db.delete(f"pending_http:{chat_id}")
+        p = json.loads(phttp)
+        try:
+            out = http_do(p["method"], p["url"], {str(k): str(v) for k, v in p["headers"].items()}, p["body"])
+            send(chat_id, f"Reponse {out.get('code_http', '')} : {out.get('texte') or out.get('erreur', '')}"[:800])
+        except Exception as e:
+            send(chat_id, "La requete a echoue : " + scrub(e)[:200])
     else:
         send(chat_id, "Rien a valider (c'est trop ancien ou deja fait).")
 
@@ -766,6 +794,7 @@ def confirm_no(chat_id):
     db.delete(f"pending_cmd:{chat_id}")
     db.delete(f"pending_mail:{chat_id}")
     db.delete(f"pending_web:{chat_id}")
+    db.delete(f"pending_http:{chat_id}")
     send(chat_id, "Annule.")
 
 
@@ -848,25 +877,180 @@ SAFE_CMDS = {"ls", "df", "free", "uptime", "ps", "date", "whoami", "hostname", "
              "sensors", "pwd", "nproc", "lscpu", "who"}
 
 
-def run_shell(cmd):
-    r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=120, cwd=os.path.expanduser("~"))
+def run_shell(cmd, timeout=120):
+    try:
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=timeout, cwd=os.path.expanduser("~"))
+    except subprocess.TimeoutExpired:
+        return f"(arrete apres {timeout} s : trop long. Relance avec background=true pour une tache longue.)"
     return ((r.stdout + r.stderr).strip() or "(aucune sortie)")[-3000:] + ("" if r.returncode == 0 else f"\n(code {r.returncode})")
 
 
 DANGEROUS = re.compile(
     r"\brm\s+-\w*[rf]|\bmkfs|\bdd\s+if=|\b(shutdown|reboot|poweroff|halt)\b|\bpasswd\b|chpasswd|\buserdel\b|\bvisudo\b|"
     r"/etc/sudoers|\bufw\b|sshd_config|authorized_keys|id_rsa|\.env\b|\b(curl|wget)\b.*\|\s*(sudo\s+)?(ba|z)?sh\b|:\(\)\s*\{|"
-    r">\s*/dev/sd|chmod\s+-R\s+777|tailscale\s+(down|logout)|\bsystemctl\s+(stop|disable|mask)\s+(ssh|sshd|tailscaled|fail2ban|bot-telegram)")
+    r">\s*/dev/sd|chmod\s+-R\s+777|tailscale\s+(down|logout)|sites\.json|google_token|browser_cookies|\bsystemctl\s+(stop|disable|mask)\s+(ssh|sshd|tailscaled|fail2ban|bot-telegram)")
 
 
-def tool_run_command(chat_id, command, tainted):
+def tool_run_command(chat_id, command, tainted, force_confirm=False, background=False):
     """Execute la commande directement. Confirmation (/oui) seulement si elle est destructrice/sensible, ou si
     la conversation vient de lire du contenu web (une page piegee pourrait avoir glisse un ordre)."""
-    if DANGEROUS.search(command) or tainted:
+    if DANGEROUS.search(command) or tainted or force_confirm:
         db.setex(f"pending_cmd:{chat_id}", 300, command)
-        send_confirm(chat_id, f"Je vais lancer :\n{command}\n\nC'est bon ?", cmd_id(command), "Lancer")
+        send_confirm(chat_id, f"Je vais lancer :\n{command[:3500]}\n\nC'est bon ?", cmd_id(command), "Lancer")
         return {"statut": "en attente : l'utilisateur doit appuyer sur le bouton Oui. Dis-lui que tu attends sa confirmation."}
+    if background:
+        return start_job(chat_id, command)
     return {"sortie": run_shell(command)}
+
+
+JOBS = os.path.expanduser("~/work/jobs")
+
+
+def start_job(chat_id, command):
+    """Tache longue : tourne en arriere-plan (1 h max), le bot envoie la fin du journal quand c'est fini."""
+    os.makedirs(JOBS, exist_ok=True)
+    jid = uuid.uuid4().hex[:6]
+    path = f"{JOBS}/{jid}.log"
+
+    def _run():
+        try:
+            with open(path, "w") as f:
+                code = subprocess.run(["bash", "-c", command], stdout=f, stderr=subprocess.STDOUT,
+                                      cwd=os.path.expanduser("~"), timeout=3600).returncode
+        except subprocess.TimeoutExpired:
+            code = "trop long, arrete apres 1 h"
+        except Exception as e:
+            code = scrub(e)[:100]
+        try:
+            tail = open(path, errors="replace").read()[-1500:].strip()
+            send(chat_id, f"Tache longue terminee (code {code}) :\n{tail or '(aucune sortie)'}")
+        except Exception as e:
+            log.warning("fin de tache : %s", scrub(e))
+    threading.Thread(target=_run, daemon=True).start()
+    return {"resultat": f"lance en arriere-plan (tache {jid}), je previens des que c'est fini", "journal": path}
+
+
+WORK = os.path.expanduser("~/work")
+HOME = os.path.expanduser("~")
+SAFE_DIRS = (WORK, os.path.expanduser("~/recus"), os.path.expanduser("~/exports"))
+SECRET_PATH = re.compile(r"\.env\b|id_rsa|id_ed25519|/shadow|\.ssh/|sites\.json|google_token|browser_cookies|\.pem$|/etc/sudoers", re.I)
+PY_DANGEROUS = re.compile(r"shutil\.rmtree|os\.(remove|unlink|rmdir|removedirs)\b|\.unlink\(|\.rmdir\(|os\.system\(\s*f?[\"'][^\"']*(rm|mkfs|dd|shutdown|reboot)\b")
+
+
+def _path(p, base=HOME):
+    p = os.path.expanduser(str(p).strip() or "~")
+    return os.path.realpath(p if os.path.isabs(p) else os.path.join(base, p))
+
+
+def tool_files(name, args, tainted):
+    """read_file : lit un fichier (ou liste un dossier). write_file : ecrit un fichier (dans le dossier perso, hors secrets)."""
+    path = _path(args.get("path", ""), WORK if name == "write_file" else HOME)
+    if SECRET_PATH.search(path):
+        return {"erreur": "fichier secret : acces refuse"}
+    if name == "read_file":
+        if os.path.isdir(path):
+            items = sorted(os.listdir(path))[:100]
+            return {"dossier": path, "contenu": [i + ("/" if os.path.isdir(os.path.join(path, i)) else "") for i in items]}
+        if not os.path.isfile(path):
+            return {"erreur": "fichier introuvable : " + path}
+        with open(path, "rb") as f:
+            raw = f.read(300000)
+        if b"\0" in raw[:2000]:
+            return {"erreur": f"fichier binaire ({os.path.getsize(path)} octets) : utilise send_file pour l'envoyer, ou python_run pour l'ouvrir"}
+        text = raw.decode("utf-8", errors="replace")
+        start = max(0, int(args.get("start", 0) or 0))
+        return {"texte": text[start:start + 6000], "longueur": len(text),
+                "suite": f"relance avec start={start + 6000}" if len(text) > start + 6000 else "fin du fichier"}
+    # write_file
+    in_home = path == HOME or path.startswith(HOME + os.sep)
+    rel = os.path.relpath(path, HOME) if in_home else ""
+    in_safe = any(path.startswith(d + os.sep) for d in SAFE_DIRS)
+    protected = (not in_home or any(part.startswith(".") for part in rel.split(os.sep)) or rel.split(os.sep)[0] in ("bots", "depot", "lightpanda"))
+    if (protected or tainted) and not in_safe:
+        return {"erreur": "ecriture refusee ici (dossier systeme, cache ou du bot). Ecris dans ~/work, ou utilise run_command avec validation."
+                          + (" Cette conversation a lu du contenu externe : seuls ~/work, ~/recus et ~/exports sont permis." if tainted else "")}
+    content = str(args.get("content", ""))
+    if len(content) > 2_000_000:
+        return {"erreur": "contenu trop gros"}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a" if args.get("append") is True else "w", encoding="utf-8") as f:
+        f.write(content)
+    return {"resultat": f"{len(content)} caracteres ecrits dans {path}"}
+
+
+def tool_python(chat_id, code, tainted):
+    """Execute du Python (celui du bot : requests, etc.) dans ~/work. Demande /oui si le code supprime des fichiers."""
+    code = str(code)
+    if not code.strip():
+        return {"erreur": "code vide"}
+    os.makedirs(WORK, exist_ok=True)
+    end = "PYEND" + uuid.uuid4().hex[:6]
+    cmd = f"cd ~/work && {shlex.quote(sys.executable)} - <<'{end}'\n{code}\n{end}"
+    return tool_run_command(chat_id, cmd, tainted, force_confirm=bool(PY_DANGEROUS.search(code)))
+
+
+def http_do(method, url, headers, body):
+    from urllib.parse import urljoin
+    for _ in range(4):                                     # redirections suivies a la main : chaque etape reste verifiee
+        if not url_ok(url):
+            return {"erreur": "adresse refusee (site public en http ou https seulement)"}
+        r = requests.request(method, url, headers=headers, data=(body.encode() if body else None), timeout=30,
+                             allow_redirects=False, stream=True)
+        if r.is_redirect and r.headers.get("location"):
+            url = urljoin(url, r.headers["location"])
+            r.close()
+            continue
+        break
+    raw = b""
+    for chunk in r.iter_content(8192):
+        raw += chunk
+        if len(raw) > 200000:
+            break
+    r.close()
+    return {"code_http": r.status_code, "type": r.headers.get("content-type", ""), "texte": raw.decode("utf-8", errors="replace")[:5000]}
+
+
+def tool_http(chat_id, args, links):
+    method = str(args.get("method", "GET")).upper()
+    url = str(args.get("url", ""))
+    if method not in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
+        return {"erreur": "methode inconnue"}
+    if not url_ok(url):
+        return {"erreur": "adresse refusee (site public en http ou https seulement)"}
+    try:
+        headers = json.loads(args.get("headers") or "{}")
+        assert isinstance(headers, dict)
+    except (ValueError, AssertionError):
+        return {"erreur": "headers doit etre un objet JSON en texte"}
+    body = str(args.get("body") or "")
+    if method in ("GET", "HEAD"):
+        links.append(url)                                  # contenu externe : la conversation devient "sensible"
+        return http_do(method, url, {str(k): str(v) for k, v in headers.items()}, "")
+    if links:                                              # envoi de donnees apres lecture de contenu externe : validation par bouton
+        p = {"method": method, "url": url, "headers": headers, "body": body}
+        db.setex(f"pending_http:{chat_id}", 300, json.dumps(p))
+        send_confirm(chat_id, f"J'envoie une requete {method} a {url}\n{body[:600]}\n\nC'est bon ?", cmd_id(json.dumps(p)), "Envoyer")
+        return {"statut": "en attente : l'utilisateur doit appuyer sur le bouton Oui. Dis-lui que tu attends sa confirmation."}
+    return http_do(method, url, {str(k): str(v) for k, v in headers.items()}, body)
+
+
+def minutes_until(args, key="minutes"):
+    """Delai en minutes : soit 'when' (AAAA-MM-JJ HH:MM, heure du Mac mini), soit le nombre donne dans args[key]."""
+    when = str(args.get("when", "") or "").strip()
+    if not when:
+        return int(args.get(key, 1) or 1)
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(when, fmt)
+            break
+        except ValueError:
+            dt = None
+    if dt is None:
+        raise ValueError("format de date attendu : AAAA-MM-JJ HH:MM")
+    secs = (dt - datetime.now()).total_seconds()
+    if secs < 0:
+        raise ValueError("cette date est deja passee")
+    return max(1, int(secs // 60) + 1)
 
 
 TOOLS = [{"functionDeclarations": [
@@ -891,8 +1075,8 @@ TOOLS = [{"functionDeclarations": [
      "texte exact avec des boutons Oui/Non. Dis-lui juste que le brouillon attend son clic. to = adresse(s), subject, body, account = numero de boite (defaut 1).",
      "parameters": {"type": "object", "properties": {"to": {"type": "array", "items": {"type": "string"}}, "subject": {"type": "string"},
                     "body": {"type": "string"}, "account": {"type": "integer"}}, "required": ["to", "subject", "body"]}},
-    {"name": "web_search", "description": "Cherche sur le web pour des infos recentes ou verifiables. Inutile pour la conversation simple.",
-     "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+    {"name": "web_search", "description": "Cherche sur le web pour des infos recentes ou verifiables (kind=news pour l'actualite). Inutile pour la conversation simple.",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "kind": {"type": "string", "enum": ["text", "news"]}, "limit": {"type": "integer"}}, "required": ["query"]}},
     {"name": "play_music", "description": "Joue une musique ou une video YouTube (audio) sur la sortie choisie (Mac mini ou tele). Donne titre et artiste, ou un lien.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
     {"name": "music_control", "description": "Arrete, met en pause ou reprend la musique en cours.",
@@ -918,8 +1102,8 @@ TOOLS = [{"functionDeclarations": [
     {"name": "todo_list", "description": "Montre ce qu'il reste a faire a l'utilisateur (sa liste de taches).", "parameters": {"type": "object", "properties": {}}},
     {"name": "todo_done", "description": "Coche une tache comme faite (donne un mot de la tache) ou la supprime si remove=true.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "remove": {"type": "boolean"}}, "required": ["text"]}},
-    {"name": "set_reminder", "description": "Programme un rappel dans N minutes (Telegram + voix du Mac mini).",
-     "parameters": {"type": "object", "properties": {"minutes": {"type": "integer"}, "text": {"type": "string"}}, "required": ["minutes", "text"]}},
+    {"name": "set_reminder", "description": "Programme un rappel (Telegram + voix du Mac mini) : dans N minutes, ou a une date precise avec when = AAAA-MM-JJ HH:MM (jusqu'a 60 jours).",
+     "parameters": {"type": "object", "properties": {"minutes": {"type": "integer"}, "when": {"type": "string"}, "text": {"type": "string"}}, "required": ["text"]}},
     {"name": "remember", "description": "Retient durablement une info sur l'utilisateur ou ses preferences (memoire longue, survit aux redemarrages). "
      "Utilise-la des que l'utilisateur dit 'retiens', 'souviens-toi' ou donne une info personnelle utile.",
      "parameters": {"type": "object", "properties": {"fact": {"type": "string"}}, "required": ["fact"]}},
@@ -945,8 +1129,8 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
     {"name": "schedule_task", "description": "Programme une tache que TU executeras plus tard toute seule (avec tous tes outils) et dont tu enverras le resultat. "
      "Ex : 'dans 60 minutes, verifie l'espace disque' ou 'toutes les 1440 minutes, donne-moi la meteo de Paris'. repeat_minutes = 0 pour une seule fois.",
-     "parameters": {"type": "object", "properties": {"in_minutes": {"type": "integer"}, "instruction": {"type": "string"},
-                                                      "repeat_minutes": {"type": "integer"}}, "required": ["in_minutes", "instruction"]}},
+     "parameters": {"type": "object", "properties": {"in_minutes": {"type": "integer"}, "when": {"type": "string", "description": "AAAA-MM-JJ HH:MM au lieu de in_minutes"},
+                                                      "instruction": {"type": "string"}, "repeat_minutes": {"type": "integer"}}, "required": ["instruction"]}},
     {"name": "list_tasks", "description": "Liste les taches programmees."},
     {"name": "cancel_tasks", "description": "Annule les taches programmees dont l'instruction contient ce texte (ou toutes si vide).",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}},
@@ -969,8 +1153,19 @@ TOOLS = [{"functionDeclarations": [
          "every_minutes": {"type": "integer"}, "note": {"type": "string"}, "text": {"type": "string"}}, "required": ["action"]}},
     {"name": "run_command", "description": "Execute N'IMPORTE QUELLE commande shell sur le Mac mini (Ubuntu, utilisateur ldws123, sudo sans mot de passe). "
      "C'est ton outil universel : fichiers, installation de paquets, services, reseau, scripts Python, processus... "
-     "Enchaine plusieurs commandes pour accomplir une tache. Seules les commandes destructrices demandent une confirmation /oui.",
-     "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
+     "Enchaine plusieurs commandes pour accomplir une tache. Seules les commandes destructrices demandent une confirmation /oui. "
+     "background=true pour une tache longue (plus de 2 minutes) : elle tourne seule et le bot previent a la fin.",
+     "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "background": {"type": "boolean"}}, "required": ["command"]}},
+    {"name": "python_run", "description": "Execute du code Python (bibliotheques du bot : requests...) pour calculer, traiter des donnees, generer des fichiers. Affiche avec print().",
+     "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}},
+    {"name": "read_file", "description": "Lit un fichier texte du Mac mini (start = decalage pour la suite), ou liste un dossier.",
+     "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "start": {"type": "integer"}}, "required": ["path"]}},
+    {"name": "write_file", "description": "Ecrit un fichier (dans ~/work par defaut si chemin relatif a ~/work). append=true pour ajouter. Pour code, notes, CSV, scripts.",
+     "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}, "append": {"type": "boolean"}}, "required": ["path", "content"]}},
+    {"name": "http_request", "description": "Appelle une API ou un site : method GET/POST/PUT/PATCH/DELETE, url, headers (objet JSON en texte), body (texte, ex. JSON).",
+     "parameters": {"type": "object", "properties": {"method": {"type": "string"}, "url": {"type": "string"}, "headers": {"type": "string"}, "body": {"type": "string"}}, "required": ["url"]}},
+    {"name": "weather", "description": "Meteo du moment dans une ville.",
+     "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}},
 ]}]
 
 
@@ -1639,9 +1834,17 @@ def run_tool(chat_id, name, args, links):
         if name in ("favorite_add", "favorite_list", "favorite_remove"):
             return tool_favorite(name, args)
         if name == "web_search":
-            res = web_search(args.get("query", ""), n=4)
+            res = web_search(args.get("query", ""), n=max(1, min(10, int(args.get("limit", 4) or 4))), kind=str(args.get("kind", "text")))
             links.extend(r["href"] for r in res if r.get("href"))
-            return {"resultats": [{"titre": r.get("title", ""), "texte": r.get("body", "")[:300], "lien": r.get("href", "")} for r in res]}
+            return {"resultats": [{"titre": r.get("title", ""), "texte": r.get("body", "")[:300], "lien": r.get("href", ""), "date": r.get("date", "")} for r in res]}
+        if name in ("read_file", "write_file"):
+            return tool_files(name, args, tainted=bool(links))
+        if name == "python_run":
+            return tool_python(chat_id, args.get("code", ""), tainted=bool(links))
+        if name == "http_request":
+            return tool_http(chat_id, args, links)
+        if name == "weather":
+            return {"resultat": meteo(str(args.get("city", "Paris")))}
         if name == "say_aloud":
             txt = clean_for_speech(str(args.get("text", "")), 400)
 
@@ -1709,7 +1912,11 @@ def run_tool(chat_id, name, args, links):
             screen_message(str(args.get("text", "")))
             return {"resultat": "affiche"}
         if name == "set_reminder":
-            return {"resultat": add_reminder(chat_id, f"{int(args.get('minutes', 1))} {args.get('text', '')}")}
+            try:
+                mins = minutes_until(args)
+            except ValueError as e:
+                return {"erreur": str(e)}
+            return {"resultat": add_reminder(chat_id, f"{mins} {args.get('text', '')}")}
         if name == "get_status":
             return {"resultat": status()}
         if name == "remember":
@@ -1737,7 +1944,10 @@ def run_tool(chat_id, name, args, links):
             rep_min = max(0, int(args.get("repeat_minutes", 0) or 0))
             if 0 < rep_min < 5:
                 rep_min = 5
-            delay = max(1, int(args.get("in_minutes", 1)))
+            try:
+                delay = max(1, minutes_until(args, "in_minutes"))
+            except ValueError as e:
+                return {"erreur": str(e)}
             db.zadd("tasks", {json.dumps({"chat": chat_id, "prompt": str(args.get("instruction", ""))[:300], "repeat": rep_min,
                                           "id": uuid.uuid4().hex}): time.time() + delay * 60})
             return {"resultat": f"programmee dans {delay} min" + (f", puis toutes les {rep_min} min" if rep_min else "")}
@@ -1764,7 +1974,7 @@ def run_tool(chat_id, name, args, links):
         if name == "page_watch":
             return tool_page_watch(args)
         if name == "run_command":
-            return tool_run_command(chat_id, str(args.get("command", "")), tainted=bool(links))
+            return tool_run_command(chat_id, str(args.get("command", "")), tainted=bool(links), background=args.get("background") is True)
     except Exception as e:
         log.warning("outil %s en erreur : %s", name, scrub(e))
         return {"erreur": scrub(e)[:200]}
@@ -1796,6 +2006,34 @@ GROQ_TOOLS = [{"type": "function", "function": {"parameters": {"type": "object",
               for d in TOOLS[0]["functionDeclarations"]]
 
 
+# Limite gratuite : ~8000 tokens/minute par modele. On n'envoie donc que les outils utiles a la demande (le reste = mots-cles ci-dessous),
+# ce qui laisse de la place pour enchainer beaucoup d'etapes. En cas de doute (le modele refuse), on renvoie la liste complete.
+TOOL_GROUPS = [
+    (r"musique|son\b|volume|joue|mets|chanson|pause|reprend|stop|\bdis\b|parle|annonce|ecran|titre|artiste|playlist|youtube|sortie|haut.?parleur|ecoute",
+     {"play_music", "music_control", "change_volume", "set_volume", "set_output", "say_aloud", "show_on_screen"}),
+    (r"tele|chaine|netflix|youtube|prime|disney|hdmi|allume|eteins|remote|source|sony|telecommande", {"tv_remote", "show_remote"}),
+    (r"mail|message|boite|inbox|repond|gmail|courrier", {"mail_list", "mail_read", "mail_send"}),
+    (r"agenda|calendrier|rendez|rdv|reunion|meet|evenement|planning|dispo|semaine|demain|aujourd|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|calendar",
+     {"calendar_list", "calendar_create", "calendar_delete"}),
+    (r"image|photo|dessin|logo|illustr|picture|affiche|wallpaper|fond d|visuel|montre", {"generate_image", "find_image", "send_photo"}),
+    (r"aime|adore|favori|garde|sauvegarde|top\b|kiff", {"favorite_add", "favorite_list", "favorite_remove"}),
+    (r"surveill|previens|alerte|prix|stock|disponib|change|annonce", {"page_watch"}),
+    (r"tache|programm|annule|toutes les|chaque|repete", {"list_tasks", "cancel_tasks"}),
+]
+CORE_TOOLS = {"run_command", "python_run", "read_file", "write_file", "http_request", "web_search", "fetch_url", "browser", "remember", "forget",
+              "send_file", "set_reminder", "schedule_task", "todo_add", "todo_list", "todo_done", "get_status", "weather"}
+
+
+def select_tools(text):
+    """Outils utiles pour ce texte : le socle + les groupes dont un mot-cle apparait."""
+    t = norm(text)
+    names = set(CORE_TOOLS)
+    for pattern, group in TOOL_GROUPS:
+        if re.search(pattern, t):
+            names |= group
+    return [x for x in GROQ_TOOLS if x["function"]["name"] in names]
+
+
 SILENT = "\u2063(rien a dire)"        # marqueur interne : le brouillon d'email est deja affiche, pas de 2e message
 
 
@@ -1810,10 +2048,19 @@ def clean_answer(text):
 HARD = re.compile(r"\b(analys|compar|strateg|plan|expliqu|pourquoi|comment faire|conseil|decid|choisir|choix|resum|redige|ecris|code|script|probleme|bug|organis|budget|idee)", re.I)
 
 
+ACTION = re.compile(r"\b(cherche|trouve|fais|fait|installe|cree|ecris|envoie|telecharge|lis|ouvre|sauvegarde|supprime|deplace|compare|calcule|"
+                    r"convertis|traduis|resume|analyse|surveille|programme|organise|prepare|reserve|configure|repare|corrige|ameliore|genere)", re.I)
+DEEP = re.compile(r"\b(strateg|analys|compar|architecture|debug|bug|code|script|optimis|etape par etape|raisonn|calcul|demonstr|probleme)", re.I)
+
+
 def effort(question, oral):
-    """Questions simples : reponse eclair. Questions de reflexion : le modele reflechit plus longtemps."""
+    """Courte conversation : reponse eclair. Action ou question de fond : il reflechit plus. Gros sujet : a fond."""
     q = norm(question)
-    return "medium" if (not oral and (len(q) > 160 or HARD.search(q))) else "low"
+    if oral:
+        return "low"
+    if len(q) > 400 or DEEP.search(q):
+        return "high"
+    return "medium" if (len(q) > 60 or HARD.search(q) or ACTION.search(q)) else "low"
 
 
 def llm_models():
@@ -1845,44 +2092,64 @@ def model_command(chat_id, arg):
             + "\n\n/model 2 : use number 2 first\n/model auto : default order. If one fails, I try the next automatically.")
 
 
+REFUSAL = re.compile(r"\b(je ne peux pas|je n.?ai pas (la possibilit|acc[eè]s|les moyens)|je suis (incapable|dans l.impossibilit)|impossible de|"
+                     r"je ne suis pas (capable|en mesure)|i can.?t|i cannot|i am unable|i.m unable|not able to)", re.I)
+NUDGE = ("[Systeme] Avant de dire que tu ne peux pas : cherche une voie avec tes outils (run_command, python_run, browser, fetch_url, http_request, "
+         "write_file) et essaie vraiment. Si c'est reellement impossible (materiel absent, ou ca demande la validation de l'utilisateur), "
+         "explique precisement pourquoi en une phrase et propose la meilleure alternative. Les validations Oui/Non restent obligatoires.")
+MAX_STEPS = 16
+
+
+def llm_call(messages, question, oral, tools=True, toolset=None):
+    """Un appel au premier modele disponible (les suivants en secours). Renvoie la reponse HTTP, ou None si tous sont indisponibles."""
+    for model in llm_models():
+        if db.get(f"cool:{model}"):
+            continue
+        t0 = time.time()
+        try:
+            r = NET.post(f"{LLM_BASE_URL}/chat/completions", timeout=45,
+                         headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+                         json={"model": model, "messages": messages, "tools": toolset or GROQ_TOOLS, "tool_choice": "auto" if tools else "none",
+                               "temperature": 0.4, "max_tokens": 2000,
+                               **({"reasoning_effort": effort(question, oral)} if "gpt-oss" in model else {})})
+        except requests.RequestException as e:
+            log.warning("llm %s injoignable : %s", model, scrub(e))
+            db.setex(f"cool:{model}", 60, 1)
+            continue
+        log.info("llm %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
+        if r.status_code == 200:
+            return r
+        if r.status_code == 429:
+            db.setex(f"cool:{model}", 3600 if "per day" in r.text.lower() else 20, 1)
+        elif r.status_code != 400:                     # 400 = le modele a rate son appel d'outil : on tente le suivant
+            db.setex(f"cool:{model}", 120, 1)
+    return None
+
+
 def agent_groq(chat_id, question, oral=False, taint=False):
     """Agent loop on the main provider (OpenAI-compatible API, Groq by default). Returns (text, links) ; text = None if it is unavailable."""
     history = []
     for x in db.lrange(f"hist:{chat_id}", 0, -1):
         m = json.loads(x)
-        history.append({"role": "assistant" if m["role"] == "model" else "user", "content": m["parts"][0].get("text", "")[:500]})
+        history.append({"role": "assistant" if m["role"] == "model" else "user", "content": m["parts"][0].get("text", "")[:1500]})
     messages = [{"role": "system", "content": build_system(oral)}] + history + [{"role": "user", "content": question}]
     links = ["(fichier recu)"] if taint else []
-    for _ in range(10):
-        resp = None
-        for model in llm_models():
-            if db.get(f"cool:{model}"):
-                continue
-            t0 = time.time()
-            try:
-                r = NET.post(f"{LLM_BASE_URL}/chat/completions", timeout=20,
-                                  headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-                                  json={"model": model, "messages": messages, "tools": GROQ_TOOLS,
-                                        "temperature": 0.4, "max_tokens": 1200,
-                                        **({"reasoning_effort": effort(question, oral)} if "gpt-oss" in model else {})})
-            except requests.RequestException as e:
-                log.warning("llm %s injoignable : %s", model, scrub(e))
-                db.setex(f"cool:{model}", 60, 1)
-                continue
-            log.info("llm %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
-            if r.status_code == 200:
-                resp = r
-                break
-            if r.status_code == 429:
-                db.setex(f"cool:{model}", 3600 if "per day" in r.text.lower() else 20, 1)
-            elif r.status_code != 400:                     # 400 = le modele a rate son appel d'outil : on tente le suivant
-                db.setex(f"cool:{model}", 120, 1)
+    used_tools, nudged, seen = False, False, {}
+    toolset = select_tools(" ".join([question] + [h["content"] for h in history[-2:]]))
+    for _ in range(MAX_STEPS):
+        resp = llm_call(messages, question, oral, toolset=toolset)
         if resp is None:
             return None, links
         msg = resp.json()["choices"][0]["message"]
         calls = msg.get("tool_calls")
         if not calls:
-            return clean_answer(msg.get("content")), links
+            answer = clean_answer(msg.get("content"))
+            if not used_tools and not nudged and not oral and REFUSAL.search(answer or ""):
+                nudged, toolset = True, GROQ_TOOLS    # il refuse sans avoir essaye : tous les outils, et on le renvoie chercher une voie (une fois)
+                messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": NUDGE}]
+                continue
+            return answer, links
+        used_tools = True
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
         drafted = False
         for c in calls:
@@ -1890,12 +2157,19 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 args = json.loads(c["function"].get("arguments") or "{}")
             except ValueError:
                 args = {}
-            out = run_tool(chat_id, c["function"]["name"], args, links)
+            key = c["function"]["name"] + json.dumps(args, sort_keys=True)
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] > 2:                         # meme appel pour la 3e fois : il tourne en rond
+                out = {"erreur": "deja essaye plusieurs fois avec les memes parametres : change d'approche ou explique le blocage"}
+            else:
+                out = run_tool(chat_id, c["function"]["name"], args, links)
             drafted = drafted or (c["function"]["name"] == "mail_send" and "statut" in out)
             messages.append({"role": "tool", "tool_call_id": c["id"], "content": json.dumps(out, ensure_ascii=False)[:4000]})
         if drafted:
             return SILENT, links
-    return "", links
+    messages.append({"role": "user", "content": "[Systeme] Limite d'etapes atteinte. En deux ou trois phrases : ce qui est fait, ce qui reste, et ce que tu proposes."})
+    resp = llm_call(messages, question, oral, tools=False, toolset=toolset)
+    return (clean_answer(resp.json()["choices"][0]["message"].get("content")) if resp is not None else ""), links
 
 
 def transcribe(audio):
@@ -1922,7 +2196,7 @@ def agent(chat_id, user_parts, oral=False, taint=False):
     contents = history + [{"role": "user", "parts": user_parts}]
     links = ["(fichier recu)"] if taint else []
     system = build_system(oral)
-    for _ in range(10):
+    for _ in range(MAX_STEPS):
         resp = call_gemini({"systemInstruction": {"parts": [{"text": system}]}, "contents": contents, "tools": TOOLS})
         if resp.status_code == 429:
             return None, ["Limite gratuite Gemini atteinte pour le moment, reessaie dans une minute."]
@@ -2250,8 +2524,8 @@ def add_reminder(chat_id, arg):
     if len(parts) < 2 or not parts[0].isdigit():
         return "Utilisation : /rappel 10 sortir le linge   (10 = minutes)"
     minutes = int(parts[0])
-    if not 1 <= minutes <= 1440:
-        return "Choisis entre 1 et 1440 minutes (24 h)."
+    if not 1 <= minutes <= 86400:
+        return "Choisis entre 1 minute et 60 jours."
     item = json.dumps({"chat": chat_id, "text": parts[1][:200], "id": uuid.uuid4().hex})
     db.zadd("reminders", {item: time.time() + minutes * 60})
     return f"C'est note, je te previens dans {minutes} min."
@@ -2300,7 +2574,7 @@ def handle(msg):
     cmd, _, arg = text.partition(" ")
     cmd = cmd.split("@")[0].lower()
     arg = arg.strip()
-    if text and not text.startswith("/") and (db.get(f"pending_mail:{chat_id}") or db.get(f"pending_cmd:{chat_id}") or db.get(f"pending_web:{chat_id}")):
+    if text and not text.startswith("/") and (db.get(f"pending_mail:{chat_id}") or db.get(f"pending_cmd:{chat_id}") or db.get(f"pending_web:{chat_id}") or db.get(f"pending_http:{chat_id}")):
         n = norm(text)
         if n in ("oui", "oui envoie", "envoie", "envoie le", "ok", "ok envoie", "go", "vas-y", "yes", "d'accord", "confirme", "oui vas-y"):
             cmd, arg = "/oui", ""
@@ -2424,7 +2698,7 @@ def handle(msg):
         if tvremote is not None and tvremote.pairing_pending() and re.fullmatch(r"[A-Za-z0-9]{6}", text):
             finish_pairing(chat_id, text)                 # pendant l'appairage, le code seul suffit (sans /code)
             return
-        if RE_TV_REMOTE.fullmatch(norm(text)):
+        if wants_remote(text):
             send_remote(chat_id)
             return
         quick = quick_music(text)                      # ordres de musique simples : instantane, sans IA
