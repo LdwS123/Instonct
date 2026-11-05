@@ -319,3 +319,16 @@ def test_digest_knows_gmail_ignores_dots(monkeypatch):
                         (uid, mid, old, de, refs))
         con.commit()
     assert [r["de"] for r in mailindex.waiting_for_reply()] == ["Paul <paul@orus.eu>"]
+
+
+def test_search_puts_real_steps_first_with_what_they_ask():
+    now = int(time.time())
+    ask = "Bonjour, pourriez-vous choisir plusieurs creneaux pour un premier echange avec Alan via ce lien " + "x" * 200
+    with mailindex._db() as con:
+        for uid, sujet, kind, body, age in ((1, "Alan event", "personne", "Evenement Alan a Paris", 10), (2, "Sales Program", "etape", ask, 90000)):
+            con.execute("INSERT INTO mails(acc, folder, uid, uidvalidity, mid, date, de, dest, sujet, type, niveau, body, refs) VALUES (1,'INBOX',?,1,?,?,'Alan <a@alan.com>','',?,?,'important',?,'')",
+                        (uid, f"<s{uid}>", now - age, sujet, kind, body))
+            con.execute("INSERT INTO mails_fts(rowid, de, dest, sujet, body) SELECT id, de, dest, sujet, body FROM mails WHERE uid=?", (uid,))
+        con.commit()
+    first = mailindex.search("Alan")["resultats"][0]
+    assert first["type"] == "etape" and "creneaux" in first["extrait"] and len(first["extrait"]) > 220

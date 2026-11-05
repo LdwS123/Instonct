@@ -80,7 +80,9 @@ def clean_answer(text):
     text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
     if "</think>" in text:
         text = text.rsplit("</think>", 1)[1]
-    return text.replace("<think>", "").strip()
+    text = text.replace("<think>", "").strip()
+    restart = text.find(text[:6], 6) if len(text) > 40 else -1      # some models write a draft, then start the same answer again right after its last full stop
+    return text[restart:] if restart > 0 and text[restart - 1] in ".!?" else text
 
 
 HARD = re.compile(r"\b(analys|compar|strateg|plan|expliqu|pourquoi|comment faire|conseil|decid|choisir|choix|resum|redige|ecris|code|script|probleme|bug|organis|budget|idee)", re.I)

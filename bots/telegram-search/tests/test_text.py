@@ -18,3 +18,10 @@ def test_clean_for_speech_drops_links_and_markdown():
 def test_parse_hhmm():
     assert life.parse_hhmm("7h15") == "07:15"
     assert life.parse_hhmm("25h") is None
+
+
+def test_clean_answer_keeps_only_the_final_version_of_a_doubled_answer():
+    doubled = "Alan : un echange le 3 novembre. Tu dois relancer.Alan : echange le 3 novembre, ils attendent tes creneaux."
+    assert llm.clean_answer(doubled) == "Alan : echange le 3 novembre, ils attendent tes creneaux."
+    normal = "Alan : un echange le 3 novembre. Alan : rien d'autre depuis cette date."
+    assert llm.clean_answer(normal) == normal

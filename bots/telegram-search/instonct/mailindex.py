@@ -168,9 +168,14 @@ def _when(ts):
     return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else ""
 
 
+_NEWS_TYPES = ("acceptation", "refus", "etape")    # a real step: the model must see what is asked, not three words around the search term
+
+
 def _row(r, extrait=None):
     out = {"id": f"{r['acc']}:{r['uid']}@{r['folder']}", "date": _when(r["date"]), "de": (r["de"] or "")[:80], "sujet": (r["sujet"] or "")[:120], "type": r["type"]}
-    if extrait:
+    if r["type"] in _NEWS_TYPES and r["body"]:
+        out["extrait"] = re.sub(r"\s+", " ", r["body"])[:600]
+    elif extrait:
         out["extrait"] = re.sub(r"\s+", " ", extrait)[:220]
     return out
 
@@ -209,7 +214,8 @@ def search(query="", de="", typ="", days=0, limit=15):
         wider = False
         if not rows:
             rows, wider = con.execute(sql, (localdb.match_query(query, _STOP, any_word=True), *params, limit * 3)).fetchall(), True
-    out = {"resultats": [_row(r, r["extrait"]) for r in _unique(rows)[:limit]]}
+    found = sorted(_unique(rows)[:limit], key=lambda r: r["type"] not in _NEWS_TYPES)   # the caller cuts long results: real steps go first
+    out = {"resultats": [_row(r, r["extrait"]) for r in found]}
     if wider and out["resultats"]:
         out["note"] = "aucun mail n'a tous les mots : resultats avec au moins un mot"
     return out | _progress_note()
