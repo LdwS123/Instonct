@@ -32,6 +32,7 @@ import redis
 import requests
 
 import mailtriage                          # sorts mails: important or advertising (no AI call)
+import screen                              # remote screen: the owner logs in to LinkedIn & co. himself (Tailscale only)
 import plus                                # tracker, expenses, dates, notebook, calculator, video text, settings (no AI call)
 
 try:                                       # extra tools (documents, QR, places, Wikipedia, currencies...) : the bot still runs without them
@@ -111,7 +112,7 @@ SYSTEM = (
     "ECRIRE : quand l'utilisateur te demande d'ecrire un email, un message, une lettre, un texte (meme en une phrase comme 'ecris un vrai email'), ECRIS-LE TOUT DE SUITE en entier : "
     "un vrai texte pret a envoyer (objet, formule d'appel, corps clair et naturel, politesse, signature avec son prenom), dans la bonne langue, adapte au contexte et a ce que tu sais de lui "
     "(recherche d'emploi, entretiens...). Pas de [crochets] a remplir, pas de questions avant : devine intelligemment et propose. "
-    "Si tu as l'adresse, appelle mail_send pour lui montrer le brouillon avec les boutons ; sinon montre le texte et demande seulement l'adresse. "
+    "Appelle mail_send pour lui montrer le brouillon avec les boutons. Si on te donne juste un prenom (ex : ecris a Arslane), mets ce prenom dans to : l'outil retrouve tout seul l'adresse dans les mails. Ne demande l'adresse que si l'outil dit qu'il ne la trouve pas. "
     "Plus generalement : FAIS d'abord, demande seulement si c'est vraiment impossible de deviner. "
     "ACTIONS : ne dis JAMAIS 'c'est fait' si le resultat de l'outil ne le confirme pas ; s'il dit que ca n'a pas marche, dis-le tel quel et propose une solution. "
     "Emails : tu peux AGIR : mail_manage (effacer = corbeille recuperable, archiver, marquer lu, spam), mail_clean (menage : supprime toutes les pubs d'un coup), "
@@ -203,6 +204,7 @@ AIDE = (
     "/sortie auto|tele|mac : ou sort le son (auto = tele si allumee, sinon Mac mini)\n"
     "/oui, /non : confirmer ou annuler (sinon, appuie sur les boutons)\n"
     "/google : reconnecter ton agenda Google (a faire une fois par semaine)\n"
+    "/connexion : ouvre un ecran du Mac mini sur ton telephone pour te connecter toi-meme a LinkedIn, etc. (/connexion stop pour fermer)\n"
     "/site : enregistrer un site pour que je m'y connecte (ajouter, liste, suppr)\n"
     "/model : choisir le modele d'IA (sinon automatique)\n"
     "/favoris : les choses que tu as aimees (dis 'j'aime' pour en ajouter)\n"
@@ -220,7 +222,7 @@ AIDE = (
 MENU = [
     ("aide", "Liste des commandes"), ("status", "Etat du Mac mini"), ("temp", "Temperature CPU"),
     ("dis", "Le Mac mini parle (anglais)"), ("parle", "Le Mac mini parle (francais)"),
-    ("voix", "Le Mac mini lit les reponses : on / off"), ("volume", "Volume du Mac mini 0-100"), ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
+    ("connexion", "Ecran du Mac mini sur ton telephone pour te connecter aux sites"), ("voix", "Le Mac mini lit les reponses : on / off"), ("volume", "Volume du Mac mini 0-100"), ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
     ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
     ("musique", "Jouer une musique YouTube"), ("pause", "Pause"), ("reprendre", "Reprendre la musique"),
     ("telecommande", "Telecommande de la tele"), ("sortie", "Son : auto, tele ou mac"),
@@ -1160,7 +1162,7 @@ TOOLS = [{"functionDeclarations": [
      "Renvoie aussi 'tri' : IMPORTANT/PUB + le type (acceptation, refus, prochaine etape, facture, colis...).",
      "parameters": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
     {"name": "mail_send", "description": "Ecrit ou repond a un email depuis la boite de l'utilisateur. Le mail n'est PAS envoye tout de suite : l'utilisateur voit le "
-     "texte exact avec des boutons Oui/Non. Dis-lui juste que le brouillon attend son clic. to = adresse(s), subject, body, account = numero de boite (defaut 1).",
+     "texte exact avec des boutons Oui/Non. Dis-lui juste que le brouillon attend son clic. to = adresse(s) OU simple prenom/nom (ex 'Arslane') : je retrouve l'adresse tout seul dans les mails, ne demande JAMAIS l'adresse avant d'avoir essaye. subject, body, account = numero de boite (defaut 1).",
      "parameters": {"type": "object", "properties": {"to": {"type": "array", "items": {"type": "string"}}, "subject": {"type": "string"},
                     "body": {"type": "string"}, "account": {"type": "integer"}}, "required": ["to", "subject", "body"]}},
     {"name": "mail_manage", "description": "Agit sur des emails (ids donnes par mail_list / mail_search) : action = delete (corbeille, recuperable), archive, read, unread, spam, star. "
@@ -1841,9 +1843,67 @@ _SMTP = {"gmail.com": "smtp.gmail.com", "googlemail.com": "smtp.gmail.com", "yah
          "outlook.com": "smtp.office365.com", "hotmail.com": "smtp.office365.com", "hotmail.fr": "smtp.office365.com", "icloud.com": "smtp.mail.me.com"}
 
 
+def mail_contact(name):
+    """Retrouve l'adresse d'une personne a partir de son prenom/nom, dans les mails recus ET envoyes (tous les dossiers).
+    Retourne [(adresse, nom affiche, nombre de mails)], les plus frequents d'abord."""
+    import email
+    from email.utils import getaddresses
+    q = re.sub(r"[^A-Za-z0-9 .-]", "", unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode()).strip()
+    if len(q) < 3:
+        return []
+    mine = {a["user"].lower() for a in _mail_accounts()}
+    count, label = {}, {}
+    for acc in _mail_accounts():
+        try:
+            gmail = "gmail" in acc["host"] or "google" in acc["host"]
+            c = _mail_open(acc["n"])
+            try:
+                for folder in _mail_folders(c, gmail)[:6]:
+                    typ, _ = c.select(_imap_q(folder), readonly=True)
+                    if typ != "OK":
+                        continue
+                    typ, data = c.uid("search", None, "OR", "FROM", f'"{q}"', "OR", "TO", f'"{q}"', "CC", f'"{q}"')
+                    if typ != "OK":
+                        continue
+                    for u in data[0].split()[-40:]:
+                        typ, d = c.uid("fetch", u, "(BODY.PEEK[HEADER.FIELDS (FROM TO CC)])")
+                        if typ != "OK" or not d or not isinstance(d[0], tuple):
+                            continue
+                        h = email.message_from_bytes(d[0][1])
+                        for nm, ad in getaddresses([str(h.get(k) or "") for k in ("From", "To", "Cc")]):
+                            ad = ad.lower().strip()
+                            if not ad or ad in mine or re.search(r"no-?reply|noreply|notification|mailer-daemon", ad):
+                                continue
+                            nm = _mail_dec(nm)
+                            if q.lower() in (nm + " " + ad).lower():
+                                count[ad] = count.get(ad, 0) + 1
+                                label.setdefault(ad, nm)
+            finally:
+                try:
+                    c.logout()
+                except Exception:
+                    pass
+        except Exception as e:
+            log.info("contact %s : %s", name, scrub(e)[:80])
+    return [(a, label.get(a, ""), n) for a, n in sorted(count.items(), key=lambda kv: -kv[1])]
+
+
 def mail_send_request(chat_id, args):
     """Prepare un email et attend le /oui de l'humain : le texte exact lui est montre, le modele ne peut pas valider seul."""
-    to = [str(x).strip() for x in (args.get("to") or []) if re.fullmatch(r"[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+", str(x).strip())][:5]
+    raw_to = [str(x).strip() for x in (args.get("to") or [])][:5]
+    to, notes = [], []
+    for x in raw_to:
+        if re.fullmatch(r"[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+", x):
+            to.append(x)
+        elif x:                                                    # juste un prenom ou un nom : on cherche l'adresse dans les mails
+            found = mail_contact(x)
+            if not found:
+                return {"erreur": f"je n'ai trouve aucune adresse pour '{x}' dans les mails : demande-la a l'utilisateur"}
+            if len(found) > 1 and found[0][2] < 2 * found[1][2]:
+                return {"erreur": f"plusieurs adresses possibles pour '{x}' : " + " ; ".join(f"{a} ({n or '?'}, {c} mails)" for a, n, c in found[:4])
+                        + ". Demande laquelle a l'utilisateur."}
+            to.append(found[0][0])
+            notes.append(f"{x} = {found[0][0]}")
     if not to:
         return {"erreur": "adresse du destinataire manquante ou invalide"}
     acc = next((a for a in _mail_accounts() if a["n"] == int(args.get("account", 1) or 1)), None)
@@ -1852,7 +1912,7 @@ def mail_send_request(chat_id, args):
     p = {"id": uuid.uuid4().hex[:6], "acc": acc["n"], "to": to, "subject": str(args.get("subject", ""))[:200],
          "body": str(args.get("body", ""))[:5000]}
     db.setex(f"pending_mail:{chat_id}", 900, json.dumps(p))
-    send_confirm(chat_id, f"Mail pret (depuis {acc['user']}) :\nA : {', '.join(to)}\nSujet : {p['subject']}\n\n{p['body']}\n\nJe l'envoie ?",
+    send_confirm(chat_id, f"Mail pret (depuis {acc['user']}) :\nA : {', '.join(to)}" + (f" (adresse retrouvee dans tes mails)" if notes else "") + f"\nSujet : {p['subject']}\n\n{p['body']}\n\nJe l'envoie ?",
                  p["id"], "Envoyer")
     return {"statut": "brouillon montre a l'utilisateur avec des boutons Oui / Non. Ne dis rien de plus."}
 
@@ -2972,7 +3032,7 @@ TOOL_GROUPS = [
     (r"musique|son\b|volume|joue|mets|chanson|pause|reprend|stop|\bdis\b|parle|annonce|ecran|titre|artiste|playlist|youtube|sortie|haut.?parleur|ecoute",
      {"play_music", "music_control", "change_volume", "set_volume", "set_output", "say_aloud", "show_on_screen"}),
     (r"tele|chaine|netflix|youtube|prime|disney|hdmi|allume|eteins|remote|source|sony|telecommande", {"tv_remote", "show_remote"}),
-    (r"mail|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|refus|pub\\b|pubs", {"mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply"}),
+    (r"mail|ecri|envoi|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|refus|pub\\b|pubs", {"mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply"}),
     (r"agenda|calendrier|rendez|rdv|reunion|meet|evenement|planning|dispo|semaine|demain|aujourd|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|calendar",
      {"calendar_list", "calendar_create", "calendar_delete"}),
     (r"image|photo|dessin|logo|illustr|picture|affiche|wallpaper|fond d|visuel|montre", {"generate_image", "find_image", "send_photo"}),
@@ -3280,7 +3340,7 @@ def status():
             f"Services :\n{svc}")
 
 
-EDGE_VOICE = os.environ.get("EDGE_VOICE", "fr-FR-DeniseNeural")
+EDGE_VOICE = os.environ.get("EDGE_VOICE", "fr-FR-HenriNeural")
 VOICE_FR = os.environ.get("VOICE_FR", "mb-fr1")  # voix francaise masculine MBROLA, plus naturelle
 _speak_lock = threading.Lock()                    # une seule voix a la fois
 
@@ -3624,6 +3684,8 @@ def handle(msg):
         confirm_no(chat_id)
     elif cmd == "/temp":
         reply(chat_id, f"Le processeur est a {cpu_temp().replace(' C', ' degres')}.")
+    elif cmd in ("/connexion", "/ecran_distant"):
+        send(chat_id, connexion_command(chat_id, arg))
     elif cmd == "/model":
         send(chat_id, model_command(chat_id, arg))
     elif cmd == "/reset":
@@ -3724,6 +3786,9 @@ def handle(msg):
             tg("sendChatAction", chat_id=chat_id, action="typing")
             reply(chat_id, ask(chat_id, routine_prompt(*rt)))
             return
+        wake = re.match(r"^\s*(?:hey |ok |eh |oh )?steve\b[\s,:;.!-]*(.{2,})$", text, re.I | re.S)     # "Steve, fais-moi ca" : il repond toujours, a voix haute
+        if wake:
+            text = wake.group(1).strip()
         if re.fullmatch(r"https?://\S+", text):
             text = "Lis cette page et resume-la en 5 lignes maximum : " + text
         if wants_remote(text):
@@ -3735,8 +3800,15 @@ def handle(msg):
             return
         if quota_exceeded(chat_id):
             return
-        tg("sendChatAction", chat_id=chat_id, action="typing")
-        reply(chat_id, ask(chat_id, text))
+        tg("sendChatAction", chat_id=chat_id, action="record_voice" if wake else "typing")
+        answer = ask(chat_id, text)
+        if wake and answer != SILENT:
+            if not send_voice(chat_id, answer):
+                reply(chat_id, answer)
+            elif needs_text(text, answer):
+                send(chat_id, answer)
+        else:
+            reply(chat_id, answer)
 
 
 def quota_exceeded(chat_id):
@@ -3940,6 +4012,34 @@ def check_todos(chat_id):
          + "\n\nDis-moi ce qui est fini et je le coche.")
 
 
+SCREEN_SITES = {"linkedin": "https://www.linkedin.com/login", "indeed": "https://secure.indeed.com/auth", "gmail": "https://mail.google.com/",
+                "google": "https://accounts.google.com/", "welcome": "https://www.welcometothejungle.com/fr/signin", "france travail": "https://candidat.francetravail.fr/",
+                "facebook": "https://www.facebook.com/login", "instagram": "https://www.instagram.com/accounts/login/", "x": "https://x.com/login",
+                "twitter": "https://x.com/login", "amazon": "https://www.amazon.fr/ap/signin", "github": "https://github.com/login"}
+
+
+def connexion_command(chat_id, arg):
+    """/connexion [site] : ouvre un ecran temporaire (noVNC via Tailscale) pour que l'humain se connecte LUI-MEME. /connexion stop : ferme."""
+    a = norm(arg)
+    if a in ("stop", "fin", "ferme", "fermer", "off"):
+        screen.stop()
+        return "Ecran ferme. Tes connexions restent gardees sur le Mac mini."
+    url = next((u for k, u in SCREEN_SITES.items() if k in a), None) or (arg.strip() if re.match(r"https?://\S+$", arg.strip()) else "https://www.linkedin.com/login")
+    r = screen.start(15, url)
+    if not r.get("ok"):
+        return "Je n'arrive pas a ouvrir l'ecran : " + str(r.get("erreur", "?"))
+    send(chat_id, "Ecran ouvert pour " + str(r["reste_min"]) + " minutes. Il faut Tailscale allume sur ton telephone.\n\n"
+                  f"1) Ouvre ce lien :\n{r['url']}\n\n2) Quand il demande un mot de passe, tape celui du message suivant.\n"
+                  "3) Connecte-toi toi-meme au site. Je ne vois jamais tes mots de passe.\n4) Quand c'est fini : /connexion stop")
+    return "Mot de passe de l'ecran : " + r["mot_de_passe"]
+
+
+def check_screen(chat_id):
+    """Ferme tout seul l'ecran distant quand son temps est fini (le watch_loop passe toutes les 10 minutes, le minuteur du systeme fait le reste)."""
+    if screen.expire():
+        send(chat_id, "Ecran distant ferme (temps fini). /connexion pour le rouvrir.")
+
+
 def check_plus(chat_id):
     """Automatismes sans IA : rendez-vous dans 30 min (avec lien Meet), relances, anniversaires, menage de nuit, bilan du soir."""
     now = datetime.now()
@@ -4019,7 +4119,7 @@ def watch_loop():
         try:
             owner = db.get("owner_id")
             if owner:
-                for fn in (check_mail, check_system, check_todos, check_plus, check_google, check_pages, check_habits):
+                for fn in (check_mail, check_system, check_todos, check_plus, check_screen, check_google, check_pages, check_habits):
                     try:
                         fn(int(owner))
                     except Exception as e:
