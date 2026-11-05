@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 280" width="960" height="280" role="img" aria-labelledby="t d">
+  <title id="t">Instonct</title>
+  <desc id="d">Un Mac mini 2010 sous un nuage barre, et le mot Instonct dont le o est un bouton marche/arret.</desc>
+  <rect width="960" height="280" rx="28" fill="#0a0a0c"/>
+  <rect x="1.5" y="1.5" width="957" height="277" rx="27" fill="none" stroke="#2a2a31" stroke-width="3"/>
+
+  <!-- Icone : le nuage est barre, le Mac mini reste -->
+  <g transform="translate(46,46)">
+    <path d="M52 104 A26 26 0 0 1 48 52 A38 38 0 0 1 110 40 A30 30 0 0 1 158 68 A22 22 0 0 1 150 104 Z"
+          fill="none" stroke="#5a5a64" stroke-width="9" stroke-linejoin="round"/>
+    <line x1="30" y1="18" x2="168" y2="112" stroke="#0a0a0c" stroke-width="26" stroke-linecap="round"/>
+    <line x1="30" y1="18" x2="168" y2="112" stroke="#ff3b30" stroke-width="10" stroke-linecap="round"/>
+    <rect x="6" y="128" width="184" height="52" rx="14" fill="#ececf0"/>
+    <rect x="6" y="128" width="184" height="12" rx="6" fill="#ffffff" opacity=".55"/>
+    <line x1="30" y1="156" x2="116" y2="156" stroke="#b4b4bd" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="162" cy="156" r="6" fill="#34c759"/>
+  </g>
+
+  <!-- Mot : Instonct, dessine en traits (aucune police necessaire). Le o = bouton marche/arret. -->
+  <g transform="translate(300,86) scale(.95)" fill="none" stroke="#f2f2f4" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 0 V100"/>
+    <g transform="translate(30,0)"><path d="M0 30 V100 M0 58 C0 38 14 30 28 30 C46 30 56 40 56 58 V100"/></g>
+    <g transform="translate(116,0)"><path d="M52 42 C48 34 40 30 28 30 C14 30 6 37 6 47 C6 58 16 61 28 64 C42 67 52 71 52 82 C52 93 42 100 28 100 C14 100 6 95 2 86"/></g>
+    <g transform="translate(200,0)"><path d="M20 8 V78 C20 94 28 100 44 100 M2 30 H42"/></g>
+    <g transform="translate(274,0)" stroke="#ff3b30">
+      <path d="M55.07 36.33 A35 35 0 1 1 14.93 36.33"/>
+      <path d="M35 14 V62"/>
+    </g>
+    <g transform="translate(374,0)"><path d="M0 30 V100 M0 58 C0 38 14 30 28 30 C46 30 56 40 56 58 V100"/></g>
+    <g transform="translate(460,0)"><path d="M61.81 42.5 A35 35 0 1 0 61.81 87.5"/></g>
+    <g transform="translate(560,0)"><path d="M20 8 V78 C20 94 28 100 44 100 M2 30 H42"/></g>
+  </g>
+  <text x="300" y="232" font-family="SF Mono, Menlo, Consolas, monospace" font-size="17" letter-spacing="3" fill="#8a8a94">L'AGENT PERSONNEL. SUR TON VIEUX MAC MINI.</text>
+</svg>
