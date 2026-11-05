@@ -40,7 +40,7 @@ def tool_run_command(chat_id, command, tainted, force_confirm=False, background=
     """Execute la commande directement. Confirmation (/oui) seulement si elle est destructrice/sensible, ou si
     la conversation vient de lire du contenu web (une page piegee pourrait avoir glisse un ordre)."""
     if DANGEROUS.search(command) or tainted or force_confirm:
-        db.setex(f"pending_cmd:{chat_id}", 300, command)
+        db.set(f"pending_cmd:{chat_id}", command, ex=300)
         callbacks.send_confirm(chat_id, f"Je vais lancer :\n{command[:3500]}\n\nC'est bon ?", callbacks.cmd_id(command), "Lancer")
         return {"statut": "en attente : l'utilisateur doit appuyer sur le bouton Oui. Dis-lui que tu attends sa confirmation."}
     if background:
@@ -175,7 +175,7 @@ def tool_http(chat_id, args, links):
         return http_do(method, url, {str(k): str(v) for k, v in headers.items()}, "")
     if links:                                              # envoi de donnees apres lecture de contenu externe : validation par bouton
         p = {"method": method, "url": url, "headers": headers, "body": body}
-        db.setex(f"pending_http:{chat_id}", 300, json.dumps(p))
+        db.set(f"pending_http:{chat_id}", json.dumps(p), ex=300)
         callbacks.send_confirm(chat_id, f"J'envoie une requete {method} a {url}\n{body[:600]}\n\nC'est bon ?", callbacks.cmd_id(json.dumps(p)), "Envoyer")
         return {"statut": "en attente : l'utilisateur doit appuyer sur le bouton Oui. Dis-lui que tu attends sa confirmation."}
     return http_do(method, url, {str(k): str(v) for k, v in headers.items()}, body)

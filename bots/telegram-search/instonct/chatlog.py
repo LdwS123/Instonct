@@ -23,13 +23,13 @@ def _db():
     return closing(localdb.connect(PATH, SCHEMA))
 
 
-def record(chat_id, question, answer):
+def record(chat_id, question, answer, from_file=False):
     """Called after each exchange. The archive must never get in the way of the answer, so a failure is only logged."""
     try:
         now = int(time.time())
         with _db() as con:
             con.executemany("INSERT INTO msgs(chat, at, role, text) VALUES (?,?,?,?)",
-                            [(chat_id, now, role, scrub(text)) for role, text in (("utilisateur", question), ("bot", answer)) if text])
+                            [(chat_id, now, role, scrub(text)) for role, text in (("fichier" if from_file else "utilisateur", question), ("bot", answer)) if text])
             con.commit()
     except Exception as e:
         log.warning("archive des conversations : %s", scrub(e)[:150])
@@ -50,6 +50,12 @@ def import_history():
             con.commit()
     except Exception as e:
         log.warning("reprise de l'historique : %s", scrub(e)[:150])
+
+
+def user_messages(chat_id, after_id, limit):
+    """[(id, text)] written by the user, oldest first. Files they sent do not count: anyone could have written them."""
+    with _db() as con:
+        return [(r["id"], r["text"]) for r in con.execute("SELECT id, text FROM msgs WHERE chat=? AND role='utilisateur' AND id>? ORDER BY id LIMIT ?", (chat_id, after_id, limit))]
 
 
 def search(chat_id, query, limit=8):

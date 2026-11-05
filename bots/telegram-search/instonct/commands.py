@@ -52,7 +52,7 @@ def status():
 def screen_message(text):
     """Affiche un message sur le tableau de bord de l'ecran (lu par ecran-status via Redis)."""
     text = "".join(c for c in text if c.isprintable())[:120]
-    db.setex("ecran_msg", 60, text)
+    db.set("ecran_msg", text, ex=60)
 
 
 CITY_ALIASES = {"sf": "San Francisco", "nyc": "New York", "la": "Los Angeles", "lyon": "Lyon", "bx": "Bordeaux"}

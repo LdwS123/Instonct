@@ -3,6 +3,7 @@
 import copy
 import re
 import time
+from datetime import datetime
 
 import requests
 
@@ -59,16 +60,16 @@ def call_gemini(body):
             resp = _call_model(model, body)
         except requests.RequestException as e:
             log.warning("modele %s injoignable : %s", model, scrub(e))
-            db.setex(f"cool:{model}", 300, 1)
+            db.set(f"cool:{model}", 1, ex=300)
             continue
         log.info("modele %s : %.1f s (code %s)", model, time.time() - t0, resp.status_code)
         if resp.status_code == 200:
             return resp
         if resp.status_code == 429:
             # quota du jour epuise : repos long ; quota de la minute : on reessaie apres ~1 minute
-            db.setex(f"cool:{model}", 3600 if "PerDay" in resp.text else 65, 1)
+            db.set(f"cool:{model}", 1, ex=3600 if "PerDay" in resp.text else 65)
         elif resp.status_code in (404, 500, 503):
-            db.setex(f"cool:{model}", 300, 1)              # modele sature : on l'evite 5 min (pas de 6 s perdues a chaque question)
+            db.set(f"cool:{model}", 1, ex=300)              # modele sature : on l'evite 5 min (pas de 6 s perdues a chaque question)
     if resp is None:                                   # tous les modeles sont au repos : on reessaie le premier
         resp = _call_model(MODELS[0], body)
     return resp
@@ -126,7 +127,9 @@ def model_command(chat_id, arg):
     cur = llm_models()[0]
     host = lambda m: MODEL_API[m][0].split("//")[-1].split("/")[0]
     lines = [f"{i}. {m} ({host(m)}){'  <- in use' if m == cur else ''}" for i, m in enumerate(ALL_MODELS, 1)]
+    today = usage_today()
     return ("Models I can use:\n" + "\n".join(lines)
+            + ("\n\nToday:\n" + "\n".join(today) if today else "")
             + "\n\n/model 2 : use number 2 first\n/model auto : default order. If one fails, I try the next automatically.")
 
 
@@ -156,6 +159,28 @@ def leaked_field(r):
     return ""
 
 
+def _usage_key(day=None):
+    return f"usage:{day or datetime.now():%Y-%m-%d}"
+
+
+def _meter(model, r):
+    """Counts calls and tokens per model and per day: this is how we see if the good model really answers."""
+    try:
+        tokens = int((r.json().get("usage") or {}).get("total_tokens") or 0)
+    except (ValueError, TypeError, AttributeError):
+        tokens = 0
+    key = _usage_key()
+    db.hincrby(key, f"{model}|calls", 1)
+    db.hincrby(key, f"{model}|tokens", tokens)
+    db.expire(key, 8 * 86400)
+
+
+def usage_today():
+    u = db.hgetall(_usage_key())
+    models = sorted({k.rsplit("|", 1)[0] for k in u}, key=lambda m: -int(u.get(f"{m}|calls", 0)))
+    return [f"{m}: {u.get(f'{m}|calls', 0)} calls, {int(u.get(f'{m}|tokens', 0)):,} tokens" for m in models]
+
+
 def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _retry=True):
     """Un appel au premier modele disponible (les suivants en secours). Renvoie la reponse HTTP, ou None si tous sont indisponibles."""
     for model in llm_models():
@@ -164,38 +189,40 @@ def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _r
         t0 = time.time()
         try:
             base, key = MODEL_API[model]
+            offered = catalog.GROQ_TOOLS if toolset is None else toolset
             body = ({"model": model, "messages": messages, "temperature": 0.1, "max_tokens": 500,
                      **({"reasoning_effort": "low"} if "gpt-oss" in model else {})} if plain else
-                    {"model": model, "messages": messages, "tools": toolset or catalog.GROQ_TOOLS, "tool_choice": "auto" if tools else "none",
-                     "temperature": 0.4, "max_tokens": 2000,
+                    {"model": model, "messages": messages, "temperature": 0.4, "max_tokens": 2000,
+                     **({"tools": offered, "tool_choice": "auto" if tools else "none"} if offered else {}),
                      **({"reasoning_effort": effort(question, oral)} if "gpt-oss" in model else {})})
             r = NET.post(f"{base}/chat/completions", timeout=45, headers={"Authorization": f"Bearer {key}"}, json=body)
         except requests.RequestException as e:
             log.warning("llm %s injoignable : %s", model, scrub(e))
-            db.setex(f"cool:{model}", 60, 1)
+            db.set(f"cool:{model}", 1, ex=60)
             continue
         log.info("llm %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
         if r.status_code == 200:
             field = leaked_field(r)
             if field:                                  # le modele a recopie son brouillon interne (format gpt-oss brut) : on ne l'envoie JAMAIS a l'utilisateur
                 log.warning("llm %s : brouillon interne dans %s, on passe au suivant", model, field)
-                db.setex(f"cool:{model}", 60, 1)
+                db.set(f"cool:{model}", 1, ex=60)
                 continue
             try:
                 m0 = r.json()["choices"][0]["message"]
             except (ValueError, KeyError, IndexError, TypeError):
                 m0 = None
+            _meter(model, r)
             if m0 is not None and not m0.get("tool_calls") and not (m0.get("content") or "").strip():       # reponse vide (le modele a tout depense en reflexion) : on essaie le suivant
                 log.warning("llm %s : reponse vide, on passe au suivant", model)
-                db.setex(f"cool:{model}", 30, 1)
+                db.set(f"cool:{model}", 1, ex=30)
                 continue
             return r
         if r.status_code == 429:
             m = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)s", r.text)       # Groq dit lui-meme quand ca remarche a nouveau
             wait = int(int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3))) + 2 if m else (3600 if "per day" in r.text.lower() else 20)
-            db.setex(f"cool:{model}", max(5, min(wait, 3600)), 1)
+            db.set(f"cool:{model}", 1, ex=max(5, min(wait, 3600)))
         elif r.status_code not in (400, 413):          # 400 = appel d'outil rate, 413 = requete trop grosse pour CE modele : on tente le suivant, sans le bloquer
-            db.setex(f"cool:{model}", 120, 1)
+            db.set(f"cool:{model}", 1, ex=120)
     if _retry:                                         # Groq dit souvent "reessaie dans 5 a 20 s" : on attend un peu plutot que de passer tout de suite a Gemini (souvent sature)
         ttls = [db.ttl(f"cool:{m}") for m in llm_models()]
         ttls = [t for t in ttls if t and t > 0]

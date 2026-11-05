@@ -645,7 +645,7 @@ def mail_reply_request(chat_id, args):
     p = {"id": uuid.uuid4().hex[:6], "acc": n, "to": to, "subject": subj if re.match(r"(?i)^(re|rép|ref)\s*:", subj) else "Re: " + subj,
          "body": body[:5000], "in_reply_to": str(h["Message-ID"] or "").strip(),
          "references": (str(h["References"] or "") + " " + str(h["Message-ID"] or "")).strip()[-900:]}
-    db.setex(f"pending_mail:{chat_id}", 900, json.dumps(p))
+    db.set(f"pending_mail:{chat_id}", json.dumps(p), ex=900)
     callbacks.send_confirm(chat_id, f"Reponse prete (depuis {acc['user']}) :\nA : {', '.join(to)}\nSujet : {p['subject']}\n\n{p['body']}\n\nJe l'envoie ?",
                  p["id"], "Envoyer")
     return {"statut": "brouillon de reponse montre a l'utilisateur avec des boutons Oui / Non. Ne dis rien de plus."}
@@ -723,7 +723,7 @@ def mail_send_request(chat_id, args):
         return {"erreur": "boite mail inconnue"}
     p = {"id": uuid.uuid4().hex[:6], "acc": acc["n"], "to": to, "subject": str(args.get("subject", ""))[:200],
          "body": str(args.get("body", ""))[:5000]}
-    db.setex(f"pending_mail:{chat_id}", 900, json.dumps(p))
+    db.set(f"pending_mail:{chat_id}", json.dumps(p), ex=900)
     callbacks.send_confirm(chat_id, f"Mail pret (depuis {acc['user']}) :\nA : {', '.join(to)}" + (" (adresse retrouvee dans tes mails)" if notes else "") + f"\nSujet : {p['subject']}\n\n{p['body']}\n\nJe l'envoie ?",
                  p["id"], "Envoyer")
     return {"statut": "brouillon montre a l'utilisateur avec des boutons Oui / Non. Ne dis rien de plus."}

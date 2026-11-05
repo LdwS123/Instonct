@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 
 from .optional import habits
-from .texts import ORAL, SYSTEM
+from .texts import ORAL, BASE, PARTS, SYSTEM
 from .core import db, norm
 from . import media
 
@@ -221,7 +221,32 @@ EXTRA_TOOLS = {"read_document", "make_document", "qr_code", "download_file", "se
 LIFE_TOOLS = {"routine_save", "routine_run", "routine_list", "routine_delete", "list_add", "list_show", "list_remove", "morning_briefing", "habits"}
 
 
-def build_system(oral=False):
+_PART_TOOLS = {"mail": {"mail_list"}, "agenda": {"calendar_list"}, "perso": {"suivi", "depenses", "dates", "carnet", "calcul", "video_texte", "reglage"},
+               "media": {"play_music", "tv_remote", "show_remote", "generate_image", "find_image", "send_photo", "favorite_add", "say_aloud"},
+               "life": {"routine_save", "list_add", "morning_briefing"}}
+# These two sections explain tools that are always offered, so they are chosen from the words of the request.
+_PART_WORDS = {"browser": r"site|navig|\bpage|formulaire|scrap|connecte|login|http|www|\.com|\.fr|reserv|commande|surveill|\bprix|clique|remplis|achete",
+               "tech": r"install|script|\bcode|python|fichier|pdf|graphique|telecharge|video|\bapi\b|meteo|convert|\bocr\b|\bqr\b|excel|word|serveur|donnees|analys|itineraire|adresse|tableau"}
+_SMALL_TALK = re.compile(r"^(?:salut|bonjour|bonsoir|coucou|hello|hey|yo|merci|merci beaucoup|merci bien|ca va|comment ca va|tu vas bien|ca roule|a plus|a demain|"
+                         r"bonne journee|bonne soiree|bien joue|bravo|super|genial|cool|lol|mdr)(?: steve)?$")
+
+
+def is_small_talk(text):
+    """A greeting or a thank-you needs no tool. "ok", "oui" and "go" are not in the list: they can confirm something the bot just proposed."""
+    return bool(_SMALL_TALK.match(norm(text)))
+
+
+def _prompt_text(toolset, text):
+    """The rules this request needs. No toolset = everything (Gemini, and the retry after a refusal)."""
+    if toolset is None:
+        return SYSTEM
+    names = {x["function"]["name"] for x in toolset}
+    t = norm(text)
+    return BASE + "".join(body for part, body in PARTS.items()
+                          if names & _PART_TOOLS.get(part, set()) or (toolset and part in _PART_WORDS and re.search(_PART_WORDS[part], t)))
+
+
+def build_system(oral=False, toolset=None, text=""):
     memory = list(db.hvals("memory"))[-80:]
     now = datetime.now()
     jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
@@ -232,7 +257,10 @@ def build_system(oral=False):
     except Exception:
         hab = ""
     routines_txt = ", ".join(sorted(db.hkeys("routines"))[:15])
-    return (SYSTEM + quand + (ORAL if oral else "") +
+    names = None if toolset is None else {x["function"]["name"] for x in toolset}
+    if names is not None and not names & {"favorite_add", "favorite_list", "play_music"}:
+        favs = []
+    return (_prompt_text(toolset, text) + quand + (ORAL if oral else "") +
             (("\n\nHabitudes observees (pour mieux l'aider) :\n" + hab) if hab else "") +
             (("\n\nRoutines enregistrees (il les lance en disant leur nom) : " + routines_txt) if routines_txt else "") +
             (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "") +
@@ -285,7 +313,7 @@ TOOL_GROUPS = [
     (r"matin|briefing|resume du jour|chaque jour|reveil|habitude|appris|connais", {"morning_briefing", "habits"}),
 ]
 CORE_TOOLS = {"run_command", "python_run", "read_file", "write_file", "http_request", "web_search", "fetch_url", "browser", "remember", "forget",
-              "send_file", "set_reminder", "schedule_task", "todo_add", "todo_list", "todo_done", "get_status", "weather", "wikipedia"}
+              "send_file", "set_reminder", "schedule_task", "todo_add", "todo_list", "todo_done", "get_status", "weather", "wikipedia", "mail_index", "chat_search"}
 
 
 def select_tools(text):

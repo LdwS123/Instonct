@@ -9,17 +9,48 @@ from .texts import SILENT
 from .core import db
 from . import catalog, chatlog, dispatch, guard, llm, sound
 
+HISTORY_CHARS = 6000           # what is older is still found with chat_search
+LOOP_CHARS = 20000             # above this, one call eats most of the free tier's minute
+OLD_TOOL_CHARS = 600
+
+
+def _recent_history(chat_id):
+    """The last exchanges, newest first until the budget is spent, always keeping the last one."""
+    out, left = [], HISTORY_CHARS
+    for x in reversed(db.lrange(f"hist:{chat_id}", 0, -1)):
+        m = json.loads(x)
+        text = m["parts"][0].get("text", "")[:1500]
+        if left - len(text) < 0 and len(out) >= 2:
+            break
+        left -= len(text)
+        out.append({"role": "assistant" if m["role"] == "model" else "user", "content": text})
+    return out[::-1]
+
+
+def _squeeze(messages):
+    """Long tasks resend every tool result at each step: the oldest results are cut first, the last two stay whole."""
+    total = sum(len(m.get("content") or "") for m in messages)
+    if total <= LOOP_CHARS:
+        return
+    for m in [m for m in messages if m["role"] == "tool"][:-2]:
+        size = len(m["content"])
+        if size > OLD_TOOL_CHARS:
+            m["content"] = m["content"][:OLD_TOOL_CHARS] + "...[coupe : refais l'appel si tu en as besoin]"
+            total -= size - len(m["content"])
+            if total <= LOOP_CHARS:
+                return
+
+
 def agent_groq(chat_id, question, oral=False, taint=False):
     """Agent loop on the main provider (OpenAI-compatible API, Groq by default). Returns (text, links) ; text = None if it is unavailable."""
-    history = []
-    for x in db.lrange(f"hist:{chat_id}", 0, -1):
-        m = json.loads(x)
-        history.append({"role": "assistant" if m["role"] == "model" else "user", "content": m["parts"][0].get("text", "")[:1500]})
-    messages = [{"role": "system", "content": catalog.build_system(oral)}] + history + [{"role": "user", "content": question}]
+    history = _recent_history(chat_id)
     links = ["(fichier recu)"] if taint else []
     used_tools, nudged, seen = False, False, {}
-    toolset = catalog.select_tools(" ".join([question] + [h["content"] for h in history[-2:]]))
+    context = " ".join([question] + [h["content"] for h in history[-2:]])
+    toolset = [] if catalog.is_small_talk(question) and not taint else catalog.select_tools(context)
+    messages = [{"role": "system", "content": catalog.build_system(oral, toolset, context)}] + history + [{"role": "user", "content": question}]
     for _ in range(llm.MAX_STEPS):
+        _squeeze(messages)
         resp = llm.llm_call(messages, question, oral, toolset=toolset)
         if resp is None:
             return None, links
@@ -29,6 +60,7 @@ def agent_groq(chat_id, question, oral=False, taint=False):
             answer = llm.clean_answer(msg.get("content"))
             if not used_tools and not nudged and not oral and llm.REFUSAL.search(answer or ""):
                 nudged, toolset = True, catalog.GROQ_TOOLS    # il refuse sans avoir essaye : tous les outils, et on le renvoie chercher une voie (une fois)
+                messages[0]["content"] = catalog.build_system(oral)
                 messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": llm.NUDGE}]
                 continue
             return answer, links
@@ -83,7 +115,7 @@ def agent(chat_id, user_parts, oral=False, taint=False):
     return "", links
 
 
-def remember(chat_id, question, answer):
+def remember(chat_id, question, answer, from_file=False):
     if re.search(r"<\|(?:channel|call|start|end|message|return)\|>", answer or ""):          # jamais de brouillon interne dans la memoire
         return
     key = f"hist:{chat_id}"
@@ -91,7 +123,7 @@ def remember(chat_id, question, answer):
              json.dumps({"role": "model", "parts": [{"text": answer}]}))
     db.ltrim(key, -2 * HISTORY_TURNS, -1)
     db.expire(key, HISTORY_TTL)
-    chatlog.record(chat_id, question, answer)
+    chatlog.record(chat_id, question, answer, from_file)
 
 
 def ask(chat_id, question, oral=False, taint=False):
@@ -111,7 +143,7 @@ def ask(chat_id, question, oral=False, taint=False):
         return SILENT
     if not answer:
         return "Je n'ai pas pu formuler de reponse."
-    remember(chat_id, question, answer)
+    remember(chat_id, question, answer, taint)
     urls = [x for x in links if x.startswith("http")]
     if urls:
         answer += "\n\nSources :\n" + "\n".join(dict.fromkeys(urls))[:600]

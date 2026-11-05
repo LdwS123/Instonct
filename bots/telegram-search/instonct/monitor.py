@@ -12,7 +12,7 @@ from . import mailtriage
 from . import plus
 from . import screen
 from .core import db, log, scrub, send
-from . import commands, google, life, llm, mail, mailindex, pagewatch
+from . import commands, google, life, llm, mail, mailindex, memlearn, pagewatch
 
 # ---------------------------------------------------------------- veille : nouveaux mails et alertes du Mac mini
 _NOISE = re.compile(r"no-?reply|newsletter|notification|mailer-daemon|marketing|promo|noreply|updates@|news@", re.I)
@@ -183,6 +183,12 @@ def check_followups(chat_id):
     send(chat_id, "Ces mails attendent peut-etre ta reponse :\n" + "\n".join(lines) + "\n\nDis-moi \"lis celui de ...\" si tu veux que je m'en occupe. Pour ne plus recevoir ca : \"desactive mails sans reponse\".")
 
 
+def check_learn(chat_id):
+    """Every six hours, the bot reads what the user said since last time and keeps what lasts."""
+    if plus.setting(db, "memoire_auto") and db.set("memlearn:next", 1, nx=True, ex=6 * 3600):
+        memlearn.learn_once(chat_id)
+
+
 def check_google(chat_id):
     """Tant que l'app Google est en 'Testing', l'acces expire au bout de 7 jours : on previent a l'avance."""
     from . import gcal
@@ -218,7 +224,7 @@ def watch_loop():
         try:
             owner = db.get("owner_id")
             if owner:
-                for fn in (check_mail, check_system, check_todos, check_plus, check_followups, check_screen, check_google, pagewatch.check_pages, life.check_habits):
+                for fn in (check_mail, check_system, check_todos, check_plus, check_followups, check_learn, check_screen, check_google, pagewatch.check_pages, life.check_habits):
                     try:
                         fn(int(owner))
                     except Exception as e:

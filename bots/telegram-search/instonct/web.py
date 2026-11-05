@@ -161,7 +161,7 @@ def web_confirm(chat_id, b, p, info):
         lines.append("Ce qui sera envoye : " + ", ".join(info["fields"]))
     if info.get("pw"):
         lines.append("(le formulaire contient un mot de passe)")
-    db.setex(f"pending_web:{chat_id}", 300, json.dumps(p))
+    db.set(f"pending_web:{chat_id}", json.dumps(p), ex=300)
     callbacks.send_confirm(chat_id, "\n".join(lines) + "\n\nC'est bon ?", callbacks.cmd_id(json.dumps(p)), "Valider")
 
 
