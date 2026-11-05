@@ -9,6 +9,7 @@ import sys
 import threading
 import uuid
 from datetime import datetime
+from urllib.parse import urlparse
 
 import requests
 
@@ -77,7 +78,7 @@ def start_job(chat_id, command):
 WORK = os.path.expanduser("~/work")
 HOME = os.path.expanduser("~")
 SAFE_DIRS = (WORK, os.path.expanduser("~/recus"), os.path.expanduser("~/exports"))
-SECRET_PATH = re.compile(r"\.env\b|id_rsa|id_ed25519|/shadow|\.ssh/|sites\.json|google_token|browser_cookies|\.pem$|/etc/sudoers", re.I)
+SECRET_PATH = re.compile(r"^/(?:proc|sys|dev)(?:/|$)|\.env\b|id_rsa|id_ed25519|/shadow|\.ssh/|sites\.json|google_token|browser_cookies|\.pem$|/etc/sudoers", re.I)
 PY_DANGEROUS = re.compile(r"shutil\.rmtree|os\.(remove|unlink|rmdir|removedirs)\b|\.unlink\(|\.rmdir\(|os\.system\(\s*f?[\"'][^\"']*(rm|mkfs|dd|shutdown|reboot)\b")
 
 
@@ -168,6 +169,8 @@ def tool_http(chat_id, args, links):
         return {"erreur": "headers doit etre un objet JSON en texte"}
     body = str(args.get("body") or "")
     if method in ("GET", "HEAD"):
+        if links and len(urlparse(url).query) > 200:        # apres lecture de contenu externe, une longue requete peut cacher des donnees qui sortent par l'adresse
+            return {"erreur": "refuse : adresse avec beaucoup de donnees apres lecture de contenu externe. Utilise POST (avec validation) si c'est voulu."}
         links.append(url)                                  # contenu externe : la conversation devient "sensible"
         return http_do(method, url, {str(k): str(v) for k, v in headers.items()}, "")
     if links:                                              # envoi de donnees apres lecture de contenu externe : validation par bouton

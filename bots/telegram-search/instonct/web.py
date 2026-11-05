@@ -27,8 +27,30 @@ def url_ok(url):
         return False
 
 
+def safe_get(url, max_redirects=5, **kw):
+    """requests.get qui suit les redirections a la main : chaque etape doit rester un site public (anti-SSRF). Renvoie la reponse finale."""
+    from urllib.parse import urljoin
+    for _ in range(max_redirects + 1):
+        if not url_ok(url):
+            raise ValueError("adresse refusee (site public en http ou https seulement)")
+        r = requests.get(url, allow_redirects=False, **kw)
+        if r.is_redirect and r.headers.get("location"):
+            url = urljoin(url, r.headers["location"])
+            r.close()
+            continue
+        r.final_url = url
+        return r
+    raise ValueError("trop de redirections")
+
+
 def browse(url):
     """Lit une page avec le navigateur leger Lightpanda (comprend le JavaScript, ~25 Mo de memoire, lance a la demande)."""
+    try:                                                  # on suit nous-memes les redirections : Lightpanda ne recoit que l'adresse finale, deja verifiee
+        probe = safe_get(url, timeout=15, stream=True, headers={"User-Agent": "Mozilla/5.0"})
+        url = probe.final_url
+        probe.close()
+    except (ValueError, requests.RequestException) as e:
+        return "Page illisible : " + scrub(e)[:120]
     if os.path.exists(LIGHTPANDA):
         try:
             r = subprocess.run([LIGHTPANDA, "fetch", "--dump", "markdown", "--dump-max-bytes", "60000", url],
@@ -37,7 +59,10 @@ def browse(url):
                 return r.stdout.strip()
         except subprocess.TimeoutExpired:
             log.info("lightpanda trop long sur une page")
-    html = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"}).text          # secours : lecture simple
+    try:
+        html = safe_get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"}).text          # secours : lecture simple
+    except (ValueError, requests.RequestException) as e:
+        return "Page illisible : " + scrub(e)[:120]
     text = re.sub(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html, flags=re.S)
     return re.sub(r"\s+", " ", text).strip()
 

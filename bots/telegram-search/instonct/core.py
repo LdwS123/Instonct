@@ -30,8 +30,11 @@ def scrub(e):
 
 def _session():
     from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    # une connexion gardee ouverte peut avoir ete fermee par le serveur entre deux messages ("Remote end closed connection") : on reessaie sans bruit
+    retry = Retry(total=2, connect=2, read=2, status=0, backoff_factor=0.4, allowed_methods=None, raise_on_status=False)
     sess = requests.Session()
-    sess.mount("https://", HTTPAdapter(pool_connections=4, pool_maxsize=24))
+    sess.mount("https://", HTTPAdapter(pool_connections=4, pool_maxsize=24, max_retries=retry))
     return sess
 
 

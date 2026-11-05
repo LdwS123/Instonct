@@ -54,6 +54,8 @@ def run_tool(chat_id, name, args, links):
             txt = str(args.get("text", "")).strip()[:200]
             if not txt:
                 return {"erreur": "tache vide"}
+            if any(norm(json.loads(v)["text"]) == norm(txt) for v in db.hvals("todos")):
+                return {"resultat": f"deja dans la liste : {txt}", "reste": monitor.todo_texts()}
             db.hset("todos", uuid.uuid4().hex[:8], json.dumps({"text": txt, "at": time.time()}, ensure_ascii=False))
             return {"resultat": f"note : {txt}", "reste": monitor.todo_texts()}
         if name == "todo_list":
@@ -131,6 +133,8 @@ def run_tool(chat_id, name, args, links):
         if name == "get_status":
             return {"resultat": commands.status()}
         if name == "remember":
+            if links:                                       # du contenu externe a ete lu : il pourrait avoir dicte ce "souvenir" (relu a chaque message)
+                return {"erreur": "refuse : du contenu externe (web, mail, fichier) a ete lu dans cette conversation. Demande a l'utilisateur de le redire dans un nouveau message."}
             db.hset("memory", uuid.uuid4().hex[:8], str(args.get("fact", ""))[:300])
             return {"resultat": "retenu"}
         if name == "forget":
@@ -156,7 +160,7 @@ def run_tool(chat_id, name, args, links):
             except ValueError as e:
                 return {"erreur": str(e)}
             db.zadd("tasks", {json.dumps({"chat": chat_id, "prompt": str(args.get("instruction", ""))[:300], "repeat": rep_min,
-                                          "id": uuid.uuid4().hex}): time.time() + delay * 60})
+                                          "taint": bool(links), "id": uuid.uuid4().hex}): time.time() + delay * 60})
             return {"resultat": f"programmee dans {delay} min" + (f", puis toutes les {rep_min} min" if rep_min else "")}
         if name == "list_tasks":
             return {"taches": [f"{json.loads(r)['prompt']} (repete toutes les {json.loads(r)['repeat']} min)" if json.loads(r)["repeat"]

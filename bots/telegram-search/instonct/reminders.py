@@ -25,7 +25,7 @@ def run_task(t):
     try:
         if t.get("action"):
             return life.run_habit(t)
-        sound.reply(t["chat"], brain.ask(t["chat"], "[Tache programmee, execute-la maintenant] " + t["prompt"]))
+        sound.reply(t["chat"], brain.ask(t["chat"], "[Tache programmee, execute-la maintenant] " + t["prompt"], taint=bool(t.get("taint"))))
     except Exception as e:
         log.error("tache en erreur : %s", scrub(e))
 

@@ -31,13 +31,14 @@ def calendar_tool(name, args, links):
         return {"erreur": "agenda Google pas encore connecte : dis a l'utilisateur d'envoyer /google"}
     try:
         if name == "calendar_list":
+            links.append("(agenda lu)")                         # une invitation recue peut contenir un ordre cache : la conversation devient "sensible"
             return {"evenements": gcal.list_events(int(args.get("days", 1) or 1), args.get("start") or None) or "aucun evenement"}
         # actions visibles par d'autres ou irreversibles : refusees apres lecture d'un email (risque d'ordre cache),
         # et il faut un oui explicite de l'utilisateur (confirmed=true)
         invites = [str(x) for x in (args.get("invites") or [])]
         risky = name == "calendar_delete" or bool(invites)
-        if risky and "(email lu)" in links:
-            return {"erreur": "refuse : un email a ete lu dans cette conversation. Demande a l'utilisateur de le redire dans un nouveau message."}
+        if risky and ("(email lu)" in links or "(agenda lu)" in links):
+            return {"erreur": "refuse : un email ou l'agenda a ete lu dans cette conversation. Demande a l'utilisateur de le redire dans un nouveau message."}
         if risky and args.get("confirmed") is not True:
             return {"confirmation_requise": "demande a l'utilisateur de confirmer (oui) avant, puis rappelle l'outil avec confirmed=true"}
         if name == "calendar_delete":

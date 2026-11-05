@@ -117,7 +117,7 @@ def _download_image(url):
     if not web.url_ok(url):
         return None
     try:
-        r = requests.get(url, timeout=60, stream=True, headers={"User-Agent": "Mozilla/5.0"})
+        r = web.safe_get(url, timeout=60, stream=True, headers={"User-Agent": "Mozilla/5.0"})
         if r.status_code != 200 or not r.headers.get("Content-Type", "").startswith("image/"):
             return None
         data = r.raw.read(MAX_IMAGE + 1, decode_content=True)
