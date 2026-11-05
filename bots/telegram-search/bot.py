@@ -26,7 +26,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import redis
 import requests
@@ -35,6 +35,10 @@ try:                                       # extra tools (documents, QR, places,
     import extras
 except Exception as _e:                    # noqa
     extras = None
+try:                                       # habit learning (counting only, no AI call)
+    import habits
+except Exception as _e:                    # noqa
+    habits = None
 try:                                       # WhatsApp is optional: it only turns on when the WA_* variables are set
     import whatsapp
 except Exception as _e:
@@ -138,6 +142,8 @@ SYSTEM = (
     "Rappel ou tache a une date precise : parametre when (AAAA-MM-JJ HH:MM) de set_reminder / schedule_task, sans calculer de minutes. "
     "AUCUNE LIMITE : ne reponds jamais 'je ne peux pas' si un outil peut le faire. Si aucun outil dedie n'existe, debrouille-toi avec run_command, "
     "browser ou fetch_url (installe ce qu'il faut, ecris un script, cherche la solution) et fais-le vraiment. "
+    "ROUTINES : s'il veut qu'un mot lance une suite d'actions ('quand je dis bonne nuit, ...'), appelle routine_save (jamais remember). LISTES : 'ajoute du lait aux courses' -> list_add. "
+    "RESUME DU MATIN : 'un resume chaque matin a 8h' -> morning_briefing. Tu apprends ses habitudes toute seule (voir plus bas) : adapte-toi sans les reciter. "
     "Les validations Oui/Non (mail envoye, achat, suppression, commande dangereuse) restent obligatoires : elles protegent l'utilisateur."
 )
 
@@ -172,6 +178,9 @@ AIDE = (
     "/site : enregistrer un site pour que je m'y connecte (ajouter, liste, suppr)\n"
     "/model : choisir le modele d'IA (sinon automatique)\n"
     "/favoris : les choses que tu as aimees (dis 'j'aime' pour en ajouter)\n"
+    "/matin 8:00 Paris : un resume chaque matin (meteo, agenda, taches, emails)\n"
+    "/habitudes : ce que j'ai appris sur toi (/habitudes effacer pour tout oublier)\n"
+    "/routines : tes routines (un mot lance plusieurs actions)\n"
     "/pile : pile ou face\n"
     "/heure : date et heure du serveur\n"
     "/reset : oublier la conversation"
@@ -184,7 +193,7 @@ MENU = [
     ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
     ("musique", "Jouer une musique YouTube"), ("pause", "Pause"), ("reprendre", "Reprendre la musique"),
     ("telecommande", "Telecommande de la tele"), ("sortie", "Son : auto, tele ou mac"),
-    ("model", "Choose the AI model"), ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
+    ("matin", "Resume du matin"), ("habitudes", "Ce que j'ai appris sur toi"), ("routines", "Tes routines"), ("model", "Choose the AI model"), ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
 ]
 
 BLAGUES = [
@@ -567,11 +576,13 @@ def music_find(query):
     return None
 
 
-def music_play(query):
+def music_play(query, track=True):
     found = music_find(query)
     if not found:
         return "Je n'ai rien trouve sur YouTube pour : " + query
     title, dur, url = found
+    if track:
+        note("music", query)
     def go():                                 # le lancement sur la tele prend ~10 s : on repond tout de suite et on le fait en fond
         try:
             with _speak_lock, _music_lock:    # attend la fin d'une phrase parlee avant de prendre la carte son
@@ -836,6 +847,14 @@ def handle_callback(cq):
             confirm_yes(chat_id, pid)
         else:
             confirm_no(chat_id)
+        return
+    if data.startswith("habit:"):
+        try:
+            tg("editMessageReplyMarkup", chat_id=msg["chat"]["id"], message_id=msg["message_id"], reply_markup={"inline_keyboard": []})
+        except Exception as e:
+            log.info("boutons : %s", scrub(e)[:100])
+        _, yn, sid = (data.split(":") + ["", ""])[:3]
+        habit_answer(msg["chat"]["id"], yn, sid)
         return
     if not data.startswith("tv:") or data == _N:
         return
@@ -1153,6 +1172,24 @@ TOOLS = [{"functionDeclarations": [
     {"name": "cancel_tasks", "description": "Annule les taches programmees dont l'instruction contient ce texte (ou toutes si vide).",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}},
     {"name": "get_status", "description": "Etat du Mac mini : processeur, memoire, disque, temperature."},
+    {"name": "routine_save", "description": "Enregistre une routine : une suite d'actions que l'utilisateur lancera en disant son nom (ex : 'bonne nuit' = baisse le volume, "
+     "eteins la tele, dis bonne nuit). steps = les actions en phrases claires.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "steps": {"type": "string"}}, "required": ["name", "steps"]}},
+    {"name": "routine_run", "description": "Lance une routine enregistree (donne son nom) : tu recois les etapes et tu les executes.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+    {"name": "routine_list", "description": "Liste les routines enregistrees avec leurs etapes."},
+    {"name": "routine_delete", "description": "Supprime une routine.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+    {"name": "list_add", "description": "Ajoute des choses a une liste (courses par defaut, ou films, cadeaux, idees...). items = les elements.",
+     "parameters": {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "string"}}, "list": {"type": "string"}}, "required": ["items"]}},
+    {"name": "list_show", "description": "Montre une liste (courses par defaut) ; sans nom de liste, montre toutes les listes.",
+     "parameters": {"type": "object", "properties": {"list": {"type": "string"}}}},
+    {"name": "list_remove", "description": "Retire un element d'une liste (texte contenu dans l'element), ou vide toute la liste avec clear=true.",
+     "parameters": {"type": "object", "properties": {"item": {"type": "string"}, "list": {"type": "string"}, "clear": {"type": "boolean"}}}},
+    {"name": "morning_briefing", "description": "Resume automatique envoye chaque matin (meteo, agenda, taches, emails). time = HH:MM, city = ville, off=true pour l'arreter, now=true pour le recevoir tout de suite.",
+     "parameters": {"type": "object", "properties": {"time": {"type": "string"}, "city": {"type": "string"}, "off": {"type": "boolean"}, "now": {"type": "boolean"}}}},
+    {"name": "habits", "description": "Montre ce que tu as appris des habitudes de l'utilisateur (action=show) ou efface tout (action=reset).",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["show", "reset"]}}}},
     {"name": "fetch_url", "description": "Ouvre une page web dans un vrai navigateur leger (execute le JavaScript) et renvoie son texte, avec les liens en markdown. "
      "start = decalage en caracteres pour lire la suite d'une longue page.",
      "parameters": {"type": "object", "properties": {"url": {"type": "string"}, "start": {"type": "integer"}}, "required": ["url"]}},
@@ -1945,9 +1982,278 @@ def tool_favorite(name, args):
     return {"resultat": f"{n} favori(s) retire(s)"}
 
 
+# ---------------------------------------------------------------- habitudes, routines, listes, resume du matin
+LIFE_TOOLS = {"routine_save", "routine_run", "routine_list", "routine_delete", "list_add", "list_show", "list_remove", "morning_briefing", "habits"}
+JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+
+
+def note(kind, key=""):
+    """Compte une habitude (aucun appel IA). Ne casse jamais le reste."""
+    try:
+        if habits:
+            habits.track(db, kind, key)
+    except Exception as e:
+        log.info("habitude : %s", scrub(e)[:100])
+
+
+HABIT_TOOLS = {"weather": ("weather", "city"), "calendar_list": ("agenda", ""), "mail_list": ("mail", ""), "todo_list": ("todo", ""),
+               "get_status": ("status", ""), "tv_remote": ("tv", "action"), "list_show": ("list", "list"), "routine_run": ("routine", "name")}
+
+
+def note_tool(name, args):
+    if name in HABIT_TOOLS:
+        kind, field = HABIT_TOOLS[name]
+        note(kind, str(args.get(field, "")) if field else "")
+    elif name == "web_search" and str(args.get("kind", "")) == "news":
+        note("news")
+
+
+def habit_desc(c):
+    k = c.get("kind")
+    if k == "music":
+        return f"mets « {c.get('key', '')} »"
+    if k == "weather":
+        return "te donne la meteo" + (f" de {c['key']}" if c.get("key") else "")
+    return {"agenda": "te montre ton agenda du jour", "mail": "resume tes nouveaux emails", "news": "te donne les infos du jour",
+            "todo": "te rappelle ce qu'il te reste a faire"}.get(k, "fais ca")
+
+
+def parse_hhmm(s):
+    m = re.search(r"(\d{1,2})\s*(?:h|:)\s*(\d{2})?", str(s or ""))
+    if not m or int(m.group(1)) > 23 or int(m.group(2) or 0) > 59:
+        return None
+    return f"{int(m.group(1)):02d}:{int(m.group(2) or 0):02d}"
+
+
+def forecast_today(city):
+    g = requests.get("https://geocoding-api.open-meteo.com/v1/search", params={"name": city, "count": 1, "language": "fr"}, timeout=15).json()
+    if not g.get("results"):
+        return ""
+    p = g["results"][0]
+    d = requests.get("https://api.open-meteo.com/v1/forecast", params={
+        "latitude": p["latitude"], "longitude": p["longitude"], "timezone": "auto", "forecast_days": 1,
+        "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"}, timeout=15).json()["daily"]
+    rain = d["precipitation_probability_max"][0]
+    return (f"{METEO_CODES.get(d['weather_code'][0], 'conditions variables')}, de {round(d['temperature_2m_min'][0])} a "
+            f"{round(d['temperature_2m_max'][0])} C" + (f", pluie {rain} %" if rain is not None else ""))
+
+
+def agenda_text():
+    import gcal
+    if not gcal.connected():
+        return ""
+    ev = gcal.list_events(1)
+    return "\n".join(f"- {e['debut'][11:16]} {e['titre']}" + (f" ({e['lieu']})" if e.get("lieu") else "") for e in ev)
+
+
+def briefing_text():
+    cfg = db.hgetall("briefing")
+    city = cfg.get("city") or "Paris"
+    now = datetime.now()
+    out = [f"Bonjour ! On est {JOURS[now.weekday()]} {now:%d/%m}."]
+    for title, fn in (("Meteo a " + city, lambda: forecast_today(city)), ("Agenda du jour", agenda_text)):
+        try:
+            txt = fn()
+            if txt:
+                out.append(f"{title} : {txt}" if "\n" not in txt else f"{title} :\n{txt}")
+            elif title == "Agenda du jour":
+                out.append("Agenda du jour : rien de prevu.")
+        except Exception as e:
+            log.info("resume du matin (%s) : %s", title, scrub(e)[:100])
+    todo = todo_texts()
+    if todo:
+        out.append("A faire :\n- " + "\n- ".join(todo[:10]))
+    try:
+        mails = mail_list("", True, 5).get("emails")
+        if isinstance(mails, list) and mails:
+            out.append(f"{len(mails)} email(s) non lu(s)" + (" (les plus recents)" if len(mails) == 5 else "") + " :\n"
+                       + "\n".join(f"- {m['de']} : {m['sujet']}" for m in mails[:3]))
+    except Exception as e:
+        log.info("resume du matin (mails) : %s", scrub(e)[:100])
+    return "\n\n".join(out)
+
+
+def set_briefing(args, chat_id):
+    if args.get("off") is True:
+        db.hset("briefing", "on", "0")
+        return "Resume du matin arrete."
+    if args.get("now") is True:
+        send(chat_id, briefing_text())
+        return "Envoye."
+    cfg = db.hgetall("briefing")
+    t = parse_hhmm(args.get("time")) or cfg.get("time")
+    if not t:
+        wake = habits.wake_hour(db) if habits else None
+        t = f"{wake if wake is not None and 5 <= wake <= 11 else 8:02d}:00"
+    city = str(args.get("city") or cfg.get("city") or "Paris")[:60]
+    db.hset("briefing", mapping={"on": "1", "time": t, "city": city})
+    return f"Resume du matin active : chaque jour a {t.replace(':', ' h ')} (meteo de {city}, agenda, taches, emails)."
+
+
+def check_briefing():
+    cfg = db.hgetall("briefing")
+    owner = db.get("owner_id")
+    if cfg.get("on") != "1" or not owner:
+        return
+    now = datetime.now()
+    try:
+        hh, mm = (int(x) for x in cfg.get("time", "08:00").split(":"))
+    except ValueError:
+        return
+    target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if target <= now <= target + timedelta(hours=3) and db.set(f"briefing_sent:{now:%Y-%m-%d}", 1, nx=True, ex=86400):
+        threading.Thread(target=lambda: send(int(owner), briefing_text()), daemon=True).start()
+
+
+def match_routine(text):
+    n = norm(text)
+    n = re.sub(r"^(?:lance |fais |execute |demarre )?(?:la |ma |mon )?(?:routine )", "", n).strip() or n
+    names = db.hkeys("routines")
+    if n in names:
+        return n, json.loads(db.hget("routines", n))
+    return None
+
+
+def routine_prompt(name, r):
+    return f"[Routine « {name} »] Execute maintenant, une par une avec tes outils, ces etapes : {r['steps']}. Puis confirme en une phrase."
+
+
+def habits_report():
+    out = (habits.summary(db) if habits else "") or "Je n'ai pas encore assez vu tes habitudes : il me faut quelques jours."
+    auto = [json.loads(v) for v in db.hvals("hab:auto")]
+    if auto:
+        out += "\n\nCe que je fais deja tout seul, chaque jour :\n- " + "\n- ".join(f"a {a['hour']} h : {habit_desc(a)}" for a in auto)
+    return out + "\n\nPour tout effacer : /habitudes effacer"
+
+
+def habits_reset():
+    n = 0
+    for raw in db.zrange("tasks", 0, -1):
+        if json.loads(raw).get("habit"):
+            n += db.zrem("tasks", raw)
+    if habits:
+        habits.forget(db)
+    return f"J'ai tout oublie de tes habitudes et arrete {n} action(s) automatique(s)."
+
+
+def habit_answer(chat_id, yn, sid):
+    raw = db.get(f"hab:pend:{sid}")
+    if not raw:
+        send(chat_id, "C'est trop ancien : je te le reproposerai si ca se repete.")
+        return
+    c = json.loads(raw)
+    db.delete(f"hab:pend:{sid}")
+    if yn != "yes":
+        habits.mark(db, sid, "no")
+        send(chat_id, "D'accord, je ne te le proposerai plus pendant deux mois.")
+        return
+    now = datetime.now()
+    first = now.replace(hour=c["hour"], minute=0, second=0, microsecond=0)
+    if first <= now:
+        first += timedelta(days=1)
+    item = json.dumps({"chat": chat_id, "prompt": f"[Habitude] {habit_desc(c)}", "repeat": 1440, "id": uuid.uuid4().hex,
+                       "habit": sid, "action": c["kind"], "arg": c.get("key", "")}, ensure_ascii=False)
+    db.zadd("tasks", {item: first.timestamp()})
+    db.hset("hab:auto", sid, json.dumps(c, ensure_ascii=False))
+    habits.mark(db, sid, "yes")
+    send(chat_id, f"C'est fait : chaque jour a {c['hour']} h, je {habit_desc(c)}. /habitudes pour voir ou arreter.")
+
+
+def check_habits(chat_id):
+    """Propose (avec boutons Oui/Non) de faire tout seul une chose sure qu'il fait a la meme heure plusieurs jours."""
+    now = datetime.now()
+    if not habits or is_wa(chat_id) or not 9 <= now.hour < 21 or db.exists("hab:ping"):
+        return
+    if not db.set("hab:scan", 1, nx=True, ex=7200):
+        return
+    c = habits.detect(db)
+    if not c:
+        return
+    habits.mark(db, c["id"], "asked")
+    db.set(f"hab:pend:{c['id']}", json.dumps(c, ensure_ascii=False), ex=3 * 86400)
+    db.set("hab:ping", 1, ex=20 * 3600)               # une seule proposition par jour
+    tg("sendMessage", chat_id=chat_id, text=(f"J'ai remarque que vers {c['hour']} h tu me demandes souvent ca ({c['days']} jours sur les 14 derniers) : "
+                                              f"je {habit_desc(c)}.\nTu veux que je le fasse tout seul chaque jour a {c['hour']} h ?"),
+       reply_markup=_markup([[("✅ Oui, fais-le", f"habit:yes:{c['id']}"), ("❌ Non merci", f"habit:no:{c['id']}")]]))
+
+
+def run_habit(t):
+    """Action automatique acceptee par l'utilisateur. Sans appel IA quand c'est possible."""
+    chat, kind, arg = t["chat"], t["action"], t.get("arg", "")
+    if kind == "music":
+        if tv_up():
+            send(chat, f"J'allais mettre « {arg} », mais la tele est allumee : je ne touche a rien.")
+        else:
+            send(chat, music_play(arg, track=False))
+    elif kind == "weather":
+        send(chat, meteo(arg or db.hget("briefing", "city") or "Paris"))
+    elif kind == "todo":
+        todo = todo_texts()
+        send(chat, ("Il te reste :\n- " + "\n- ".join(todo[:15])) if todo else "Rien a faire pour l'instant, bravo.")
+    elif kind == "agenda":
+        send(chat, ("Ton agenda :\n" + agenda_text()) if agenda_text() else "Rien de prevu aujourd'hui.")
+    else:
+        reply(chat, ask(chat, "[Habitude automatique] " + t["prompt"].replace("[Habitude] ", "")))
+
+
+def tool_life(chat_id, name, args, links):
+    if name == "routine_save":
+        if links:
+            return {"erreur": "refuse : du contenu externe (web, email, document) a ete lu dans cette conversation. Demande a l'utilisateur de le redire dans un nouveau message."}
+        n, steps = norm(str(args.get("name", ""))), str(args.get("steps", "")).strip()[:600]
+        if not n or not steps:
+            return {"erreur": "il faut un nom et des etapes"}
+        if db.hlen("routines") >= 30 and not db.hexists("routines", n):
+            return {"erreur": "30 routines maximum"}
+        db.hset("routines", n, json.dumps({"steps": steps, "at": time.time()}, ensure_ascii=False))
+        return {"resultat": f"routine « {n} » enregistree : il suffit de dire « {n} » pour la lancer"}
+    if name == "routine_run":
+        n = norm(str(args.get("name", "")))
+        names = db.hkeys("routines")
+        n = n if n in names else next((x for x in names if n and (n in x or x in n)), "")
+        if not n:
+            return {"erreur": "routine inconnue", "routines": names or "aucune"}
+        return {"etapes": json.loads(db.hget("routines", n))["steps"], "consigne": "execute maintenant ces etapes avec tes outils"}
+    if name == "routine_list":
+        return {"routines": {k: json.loads(v)["steps"] for k, v in db.hgetall("routines").items()} or "aucune"}
+    if name == "routine_delete":
+        return {"resultat": f"{db.hdel('routines', norm(str(args.get('name', ''))))} routine supprimee"}
+    if name in ("list_add", "list_show", "list_remove"):
+        lst = norm(str(args.get("list") or "")) or ("courses" if name != "list_show" else "")
+        if name == "list_show" and not lst:
+            return {"listes": {k: db.lrange(f"list:{k}", 0, -1) for k in sorted(db.smembers("lists"))} or "aucune liste"}
+        key = f"list:{lst}"
+        if name == "list_add":
+            items = [str(x).strip()[:100] for x in (args.get("items") or []) if str(x).strip()][:30]
+            if items:
+                db.rpush(key, *items)
+                db.sadd("lists", lst)
+            return {"resultat": f"ajoute a {lst}", lst: db.lrange(key, 0, -1)}
+        if name == "list_show":
+            return {lst: db.lrange(key, 0, -1) or "vide"}
+        if args.get("clear") is True:
+            db.delete(key)
+            db.srem("lists", lst)
+            return {"resultat": f"liste {lst} videe"}
+        q = norm(str(args.get("item", "")))
+        left = [x for x in db.lrange(key, 0, -1) if not (q and q in norm(x))]
+        db.delete(key)
+        if left:
+            db.rpush(key, *left)
+        return {"resultat": "retire", lst: left or "vide"}
+    if name == "morning_briefing":
+        return {"resultat": set_briefing(args, chat_id)}
+    if name == "habits":
+        return {"resultat": habits_reset() if args.get("action") == "reset" else habits_report()}
+    return {"erreur": "outil inconnu"}
+
+
 def run_tool(chat_id, name, args, links):
     log.info("outil %s %s", name, json.dumps(args, ensure_ascii=False)[:100])
+    note_tool(name, args)
     try:
+        if name in LIFE_TOOLS:
+            return tool_life(chat_id, name, args, links)
         if name == "show_remote":
             send_remote(chat_id)
             return {"resultat": "telecommande affichee dans le chat"}
@@ -2105,7 +2411,14 @@ def build_system(oral=False):
     jours = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
     quand = f"\n\nNous sommes {jours[now.weekday()]} {now:%d/%m/%Y}, il est {now:%H:%M}. Donne l'heure et la date directement, sans outil."
     favs = [f"{f['text']} ({f['kind']})" if f.get("kind") else f["text"] for f in favorites()[-40:]]
+    try:
+        hab = habits.summary(db) if habits else ""
+    except Exception:
+        hab = ""
+    routines_txt = ", ".join(sorted(db.hkeys("routines"))[:15])
     return (SYSTEM + quand + (ORAL if oral else "") +
+            (("\n\nHabitudes observees (pour mieux l'aider) :\n" + hab) if hab else "") +
+            (("\n\nRoutines enregistrees (il les lance en disant leur nom) : " + routines_txt) if routines_txt else "") +
             (("\n\nCe que tu sais deja sur l'utilisateur (memoire longue) :\n- " + "\n- ".join(memory)) if memory else "") +
             (("\n\nSes favoris (choses qu'il aime) :\n- " + "\n- ".join(favs)) if favs else ""))
 
@@ -2142,6 +2455,9 @@ TOOL_GROUPS = [
     (r"carte|lieu|adresse|position|itineraire|localis|sondage|vote|poll|maps|ou (?:est|se trouve)|restaurant|bar\b|pres de", {"send_location", "send_poll"}),
     (r"euro|dollar|devise|convert|bitcoin|btc|eth\b|crypto|cours|taux|monnaie|usd|eur\b|livre sterling|yen|combien (?:fait|vaut|coute)", {"money"}),
     (r"reveille|wake|wol\b|magic packet|allume (?:le |mon )?(?:pc|ordi)", {"wake_on_lan"}),
+    (r"routine|rituel|quand je dis|macro|enchaine|bonne nuit|bonjour steve", {"routine_save", "routine_run", "routine_list", "routine_delete"}),
+    (r"liste|courses|acheter|achat|ajoute|shopping|a prendre|cadeau", {"list_add", "list_show", "list_remove"}),
+    (r"matin|briefing|resume du jour|chaque jour|reveil|habitude|appris|connais", {"morning_briefing", "habits"}),
 ]
 CORE_TOOLS = {"run_command", "python_run", "read_file", "write_file", "http_request", "web_search", "fetch_url", "browser", "remember", "forget",
               "send_file", "set_reminder", "schedule_task", "todo_add", "todo_list", "todo_done", "get_status", "weather", "wikipedia"}
@@ -2661,6 +2977,8 @@ def add_reminder(chat_id, arg):
 def run_task(t):
     """Execute une tache programmee : l'agent la realise puis envoie le resultat."""
     try:
+        if t.get("action"):
+            return run_habit(t)
         reply(t["chat"], ask(t["chat"], "[Tache programmee, execute-la maintenant] " + t["prompt"]))
     except Exception as e:
         log.error("tache en erreur : %s", scrub(e))
@@ -2679,6 +2997,7 @@ def reminder_loop():
                         speak(r["text"], times=2, voice=VOICE_FR, speed=150)
                     except Exception as e:
                         log.warning("voix indisponible : %s", scrub(e))
+            check_briefing()
             for raw in db.zrangebyscore("tasks", 0, time.time()):
                 if db.zrem("tasks", raw):
                     t = json.loads(raw)
@@ -2723,6 +3042,11 @@ def handle(msg):
         log.info("message ignore (chat non autorise)")
         return
 
+    try:
+        if habits:
+            habits.message(db)
+    except Exception as e:
+        log.info("habitude : %s", scrub(e)[:100])
     if (msg.get("photo") or msg.get("document")) and not text:
         handle_file(chat_id, msg)
     elif voice and not text:
@@ -2804,7 +3128,33 @@ def handle(msg):
         else:
             send(chat_id, f"Lecture des reponses par le Mac mini : {'activee' if db.get('voice_on') else 'coupee'}. Utilisation : /voix on ou /voix off")
     elif cmd == "/meteo":
+        note("weather", arg)
         reply(chat_id, meteo(arg) if arg else "Utilisation : /meteo Paris")
+    elif cmd == "/matin":
+        a = norm(arg)
+        if a in ("off", "stop", "non"):
+            send(chat_id, set_briefing({"off": True}, chat_id))
+        elif a in ("now", "maintenant", "test"):
+            send(chat_id, briefing_text())
+        elif not a:
+            cfg = db.hgetall("briefing")
+            send(chat_id, (f"Resume du matin : tous les jours a {cfg['time']} (meteo de {cfg.get('city', 'Paris')}). /matin off pour l'arreter, /matin maintenant pour le voir."
+                           if cfg.get("on") == "1" else "Resume du matin coupe. Active-le : /matin 8:00 Paris"))
+        else:
+            tm = parse_hhmm(arg)
+            city = re.sub(r"\d{1,2}\s*(?:h|:)\s*\d{0,2}", "", arg).strip()
+            send(chat_id, set_briefing({"time": tm, "city": city}, chat_id) if tm or city else "Utilisation : /matin 8:00 Paris")
+    elif cmd == "/habitudes":
+        send(chat_id, habits_reset() if norm(arg) in ("effacer", "reset", "oublie") else habits_report())
+    elif cmd == "/routines":
+        a = norm(arg)
+        if a.startswith("suppr"):
+            send(chat_id, tool_life(chat_id, "routine_delete", {"name": a[5:].strip()}, [])["resultat"])
+        else:
+            rt = db.hgetall("routines")
+            send(chat_id, ("Tes routines (dis leur nom pour les lancer) :\n" + "\n".join(f"- {k} : {json.loads(v)['steps']}" for k, v in rt.items())
+                           + "\n\n/routines suppr <nom> pour en enlever une.") if rt else
+                 "Pas encore de routine. Dis par exemple : quand je dis bonne nuit, baisse le volume et dis bonne nuit.")
     elif cmd == "/blague":
         reply(chat_id, random.choice(BLAGUES))
     elif cmd == "/de":
@@ -2825,6 +3175,16 @@ def handle(msg):
         if tvremote is not None and tvremote.pairing_pending() and re.fullmatch(r"[A-Za-z0-9]{6}", text):
             finish_pairing(chat_id, text)                 # pendant l'appairage, le code seul suffit (sans /code)
             return
+        rt = match_routine(text)
+        if rt:
+            if quota_exceeded(chat_id):
+                return
+            note("routine", rt[0])
+            tg("sendChatAction", chat_id=chat_id, action="typing")
+            reply(chat_id, ask(chat_id, routine_prompt(*rt)))
+            return
+        if re.fullmatch(r"https?://\S+", text):
+            text = "Lis cette page et resume-la en 5 lignes maximum : " + text
         if wants_remote(text):
             send_remote(chat_id)
             return
@@ -3002,7 +3362,7 @@ def watch_loop():
         try:
             owner = db.get("owner_id")
             if owner:
-                for fn in (check_mail, check_system, check_todos, check_google, check_pages):
+                for fn in (check_mail, check_system, check_todos, check_google, check_pages, check_habits):
                     try:
                         fn(int(owner))
                     except Exception as e:

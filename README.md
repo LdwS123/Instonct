@@ -45,7 +45,10 @@ almost anything: a Raspberry Pi, an old laptop, a cheap VPS.
 | **Browser** | "Go to news.ycombinator.com and give me a CSV of the top 30 titles", "Log me in to my gym site". |
 | **Watching** | "Tell me when this page says *in stock*." Checks every 10+ minutes, pings only on change. |
 | **Memory** | Remembers your preferences for good, and learns when you correct it. |
-| **Routines** | A morning briefing (agenda, mail, weather, your #1 priority), reminders, scheduled tasks. |
+| **Learns your habits** | Counts (no AI call, nothing leaves the server) what you ask and when. Answers adapt to it, and when you do the same safe thing at the same hour on 4+ days (music, weather, agenda, mail, news, tasks) it **offers** to do it by itself every day, with **Yes / No** buttons. Never the TV. `/habitudes` shows what it learned, `/habitudes effacer` wipes it. |
+| **Morning briefing** | `/matin 8:00 Paris`: every morning, weather, agenda, to-dos and unread mail in one message. Or just say "send me a summary every morning at 7:30". |
+| **Routines & lists** | "When I say *good night*, lower the volume and say good night": saved once, then one word runs the whole chain. Shopping lists (and any other list): "add milk to the groceries". Paste a link alone and get a 5-line summary. |
+| **Reminders** | Reminders and scheduled tasks, one-off or repeating. |
 | **Voice** | Voice notes in (Whisper), voice notes or spoken answers out. |
 | **Files** | Send it a photo, PDF or CSV and ask about it. It can send files back. |
 | **Do anything** | Runs Python to compute or process data, reads and writes files, calls any web API (`http_request`), runs long jobs in the background and messages you when they finish. Risky or destructive steps ask for a **Yes** first. |
@@ -148,7 +151,7 @@ Pick Instonct if you want the same idea with your hands on the wheel.
 ## How it works
 
 - **Brain**: any OpenAI-compatible model (Groq `gpt-oss-120b` / `20b` by default, with adaptive reasoning effort), optional Gemini fallback.
-- **Tools**: the model calls ~50 tools, picking only the relevant ones per request to save tokens on free tiers (mail, calendar, browser, files, music, TV, shell...). See `TOOLS` in [`bots/telegram-search/bot.py`](bots/telegram-search/bot.py).
+- **Tools**: the model calls ~60 tools, picking only the relevant ones per request to save tokens on free tiers (mail, calendar, browser, files, music, TV, shell...). See `TOOLS` in [`bots/telegram-search/bot.py`](bots/telegram-search/bot.py).
 - **Browser**: [Lightpanda](https://github.com/lightpanda-io/browser), a tiny headless browser (~25 MB of RAM) that even runs on a 2010 CPU. See [`webagent.py`](bots/telegram-search/webagent.py).
 - **Channels**: Telegram by long polling (no open port), WhatsApp through [`whatsapp.py`](bots/telegram-search/whatsapp.py) (a small webhook on `127.0.0.1`).
 - **State**: Redis (history, memory, reminders, watches).
