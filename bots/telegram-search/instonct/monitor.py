@@ -12,7 +12,7 @@ from . import mailtriage
 from . import plus
 from . import screen
 from .core import db, log, norm, scrub, send
-from . import commands, google, life, llm, mail, mailindex, meetings, memlearn, pagewatch
+from . import commands, google, kit_info, kit_server, life, llm, mail, mailindex, meetings, memlearn, pagewatch
 
 # ---------------------------------------------------------------- veille : nouveaux mails et alertes du Mac mini
 _NOISE = re.compile(r"no-?reply|newsletter|notification|mailer-daemon|marketing|promo|noreply|updates@|news@", re.I)
@@ -216,7 +216,7 @@ def watch_loop():
         try:
             owner = db.get("owner_id")
             if owner:
-                for fn in (check_mail, check_system, check_todos, check_plus, check_followups, check_learn, check_screen, check_google, pagewatch.check_pages, life.check_habits):
+                for fn in (check_mail, check_system, check_todos, check_plus, check_followups, check_learn, check_screen, check_google, pagewatch.check_pages, life.check_habits, kit_server.check_backup, kit_info.check_feeds):
                     try:
                         fn(int(owner))
                     except Exception as e:

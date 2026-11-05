@@ -33,6 +33,9 @@ def _run_tool(chat_id, name, args, links):
             return demarche.tool(chat_id, name, args, links)
         if name in monde.NAMES:
             return monde.tool(name, args, links)
+        from . import kits                      # lazy: kits reaches modules that import this one
+        if name in kits.NAMES:
+            return kits.tool(chat_id, name, args, links)
         if name == "show_remote":
             television.send_remote(chat_id)
             return {"resultat": "telecommande affichee dans le chat"}

@@ -302,6 +302,16 @@ def _short(d):
 
 GROQ_TOOLS = [{"type": "function", "function": {"parameters": {"type": "object", "properties": {}}, **_short(d)}}
               for d in TOOLS[0]["functionDeclarations"]]
+_KITS = []
+
+
+def kit_parts():
+    """The small tools of kits.py, as (tools, keyword groups). Only offered when the words of the request bring them (never in the full list:
+    that would eat the minute's token budget). Built on first use: kits imports modules that import this one."""
+    if not _KITS:
+        from . import kits
+        _KITS.append(([{"type": "function", "function": {"parameters": {"type": "object", "properties": {}}, **_short(d)}} for d in kits.SPECS], kits.GROUPS))
+    return _KITS[0]
 
 
 # Limite gratuite : ~8000 tokens/minute par modele. On n'envoie donc que les outils utiles a la demande (le reste = mots-cles ci-dessous),
@@ -351,9 +361,10 @@ def select_tools(text):
     """Outils utiles pour ce texte : le socle + les groupes dont un mot-cle apparait."""
     t = norm(text)
     names = set(CORE_TOOLS)
-    for pattern, group in TOOL_GROUPS:
+    kit_tools, kit_groups = kit_parts()
+    for pattern, group in TOOL_GROUPS + kit_groups:
         if re.search(pattern, t):
             names |= group
     if re.search(r"vraie recherche|recherche (?:complete|poussee)|approfond|creuse", t):
         names.discard("web_search")                    # he asked for the pages to be read: the model otherwise stops at the snippets
-    return [x for x in GROQ_TOOLS if x["function"]["name"] in names]
+    return [x for x in GROQ_TOOLS + kit_tools if x["function"]["name"] in names]
