@@ -116,6 +116,8 @@ SYSTEM = (
     "ACTIONS : ne dis JAMAIS 'c'est fait' si le resultat de l'outil ne le confirme pas ; s'il dit que ca n'a pas marche, dis-le tel quel et propose une solution. "
     "Emails : tu peux AGIR : mail_manage (effacer = corbeille recuperable, archiver, marquer lu, spam), mail_clean (menage : supprime toutes les pubs d'un coup), "
     "mail_reply (repondre dans le meme fil). Fais-le directement des que l'utilisateur le demande, sans redemander ni dire que tu ne peux pas. "
+    "Pour 'supprime les refus de candidature' : mail_clean avec genre='refus' (il lit les mails, tous les dossiers). Ne dis JAMAIS 'aucun refus' apres un simple mail_search. "
+    "Si on te demande d'effacer des mails de candidature en general, GARDE ceux d'entretien ou d'acceptation (dis lesquels tu gardes) et efface seulement accuses de reception et refus. "
     "Pour repondre : ecris toi-meme une vraie reponse (pas de modele vide), puis il appuie sur Envoyer. "
     "Outils perso (instantanes, sans IA) : suivi (candidatures/demarches : AJOUTE-LES des qu'il dit qu'il a postule ou attend une reponse), depenses (budget), dates (anniversaires), "
     "carnet (notes), calcul (TOUT calcul et conversion d'unites : ne calcule jamais de tete), video_texte (sous-titres d'une video YouTube), reglage (activer les automatismes). "
@@ -1166,8 +1168,10 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "string"}},
                     "action": {"type": "string", "enum": ["delete", "archive", "read", "unread", "spam", "star"]}}, "required": ["ids", "action"]}},
     {"name": "mail_clean", "description": "NETTOIE la boite de reception : met a la corbeille toutes les pubs et newsletters (le tri protege les mails importants). "
-     "days = jusqu'a combien de jours en arriere (30 par defaut), dry_run=true pour seulement compter sans rien supprimer. A utiliser pour 'fais le menage', 'supprime les pubs'.",
-     "parameters": {"type": "object", "properties": {"days": {"type": "integer"}, "limit": {"type": "integer"}, "dry_run": {"type": "boolean"}}}},
+     "days = jusqu'a combien de jours en arriere (30 par defaut), dry_run=true pour seulement compter sans rien supprimer. A utiliser pour 'fais le menage', 'supprime les pubs'. "
+     "genre='refus' : trouve (en LISANT les mails, dans tous les dossiers) et supprime les REFUS de candidature, jamais les entretiens ni acceptations (days=365 par defaut). "
+     "Pour 'supprime les refus' utilise TOUJOURS genre='refus' (mail_search ne sait pas les reperer).",
+     "parameters": {"type": "object", "properties": {"days": {"type": "integer"}, "limit": {"type": "integer"}, "dry_run": {"type": "boolean"}, "genre": {"type": "string", "enum": ["pubs", "refus"]}}}},
     {"name": "mail_reply", "description": "REPOND a un email (meme fil de discussion) : id = id du mail (mail_list / mail_search), body = texte de ta reponse (ecris-la toi-meme, polie, "
      "dans la langue du mail, signee du prenom de l'utilisateur si tu le connais). reply_all=true pour repondre a tous. L'utilisateur voit le texte et appuie sur Envoyer.",
      "parameters": {"type": "object", "properties": {"id": {"type": "string"}, "body": {"type": "string"}, "reply_all": {"type": "boolean"}}, "required": ["id", "body"]}},
@@ -1712,6 +1716,86 @@ def mail_clean(days=30, limit=100, dry_run=False):
     res = {"pubs_trouvees" if dry_run else "mis_a_la_corbeille": total, "mails_examines": seen_inbox, "exemples": shown or "aucun"}
     if not dry_run:
         res["note"] = "recuperables dans la corbeille ; les mails importants n'ont pas ete touches"
+    if errs:
+        res["erreurs"] = errs[:3]
+    return res
+
+
+def _body_text(m):
+    """Texte lisible d'un mail (texte brut, sinon HTML sans balises)."""
+    text = ""
+    for ctype in ("text/plain", "text/html"):
+        for part in m.walk():
+            if part.get_content_type() == ctype and not part.get_filename():
+                try:
+                    raw = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace")
+                except Exception:
+                    continue
+                text = raw if ctype == "text/plain" else re.sub(r"<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", raw, flags=re.S)
+                if text.strip():
+                    return re.sub(r"\s+", " ", text).strip()
+    return ""
+
+
+def mail_refus(days=365, limit=150, dry_run=False):
+    """Trouve les REFUS de candidature (en lisant le texte des mails, dans tous les dossiers) et les met a la corbeille. Jamais un entretien ni une acceptation."""
+    import email
+    try:
+        days, limit = max(1, int(days or 365)), max(1, min(int(limit or 150), 300))
+    except (TypeError, ValueError):
+        days, limit = 365, 150
+    since = datetime.now() - timedelta(days=days)
+    words = ["candidature", "application", "recrutement", "candidat"]
+    ids, shown, errs, examined = [], [], [], 0
+    for acc in _mail_accounts():
+        try:
+            gmail = "gmail" in acc["host"] or "google" in acc["host"]
+            c = _mail_open(acc["n"])
+            try:
+                for folder in _mail_folders(c, gmail):
+                    typ, _ = c.select(_imap_q(folder), readonly=True)
+                    if typ != "OK":
+                        continue
+                    crit = ["SINCE", f"{since.day:02d}-{_MONTHS[since.month - 1]}-{since.year}"]
+                    if gmail:
+                        crit += ["X-GM-RAW", '"(' + " OR ".join(words) + ')"']
+                    else:
+                        chain = [f'TEXT "{w}"' for w in words]
+                        expr = chain[-1]
+                        for part in reversed(chain[:-1]):
+                            expr = f"OR {part} {expr}"
+                        crit += re.findall(r'"[^"]*"|\S+', expr)
+                    typ, data = c.uid("search", None, *crit)
+                    if typ != "OK":
+                        continue
+                    for u in data[0].split()[-limit:]:
+                        typ, d = c.uid("fetch", u, "(BODY.PEEK[])")
+                        if typ != "OK" or not d or not d[0] or not isinstance(d[0], tuple):
+                            continue
+                        m = email.message_from_bytes(d[0][1])
+                        de, sujet = _mail_dec(m["From"])[:80], _mail_dec(m["Subject"])[:100]
+                        examined += 1
+                        t = _tri(de, sujet, m, _body_text(m)[:3000])
+                        if t["type"] == "refus":
+                            ids.append(f"{acc['n']}:{u.decode()}" + ("" if folder == "INBOX" else "@" + folder))
+                            if len(shown) < 8:
+                                shown.append(f"{de.split('<')[0].strip()[:30]} : {sujet[:55]}")
+            finally:
+                try:
+                    c.logout()
+                except Exception:
+                    pass
+        except Exception as e:
+            errs.append(f"{acc['user']} : {scrub(e)[:100]}")
+    res = {"refus_trouves": len(ids), "mails_lus": examined, "exemples": shown or "aucun refus trouve"}
+    if not dry_run and ids:
+        done = 0
+        for i in range(0, len(ids), 30):
+            r = mail_manage(ids[i:i + 30], "delete")
+            done += r.get("fait", 0)
+            errs += r.get("erreurs", [])
+        res["mis_a_la_corbeille"] = done
+        res["note"] = "recuperables dans la corbeille ; les entretiens et acceptations n'ont pas ete touches"
     if errs:
         res["erreurs"] = errs[:3]
     return res
@@ -2742,6 +2826,8 @@ def run_tool(chat_id, name, args, links):
             ids = args.get("ids") or []
             return mail_manage(ids if isinstance(ids, list) else [ids], str(args.get("action", "")))
         if name == "mail_clean":
+            if args.get("genre") == "refus" or "refus" in norm(str(args.get("genre", ""))):
+                return mail_refus(args.get("days") or 365, args.get("limit") or 150, args.get("dry_run") is True)
             return mail_clean(args.get("days", 30), args.get("limit", 100), args.get("dry_run") is True)
         if name in ("mail_list", "mail_read", "mail_search"):
             links.append("(email lu)")          # contenu externe : marque la conversation comme "sensible"
@@ -2886,7 +2972,7 @@ TOOL_GROUPS = [
     (r"musique|son\b|volume|joue|mets|chanson|pause|reprend|stop|\bdis\b|parle|annonce|ecran|titre|artiste|playlist|youtube|sortie|haut.?parleur|ecoute",
      {"play_music", "music_control", "change_volume", "set_volume", "set_output", "say_aloud", "show_on_screen"}),
     (r"tele|chaine|netflix|youtube|prime|disney|hdmi|allume|eteins|remote|source|sony|telecommande", {"tv_remote", "show_remote"}),
-    (r"mail|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|pub\\b|pubs", {"mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply"}),
+    (r"mail|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|refus|pub\\b|pubs", {"mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply"}),
     (r"agenda|calendrier|rendez|rdv|reunion|meet|evenement|planning|dispo|semaine|demain|aujourd|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|calendar",
      {"calendar_list", "calendar_create", "calendar_delete"}),
     (r"image|photo|dessin|logo|illustr|picture|affiche|wallpaper|fond d|visuel|montre", {"generate_image", "find_image", "send_photo"}),

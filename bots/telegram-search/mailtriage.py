@@ -10,7 +10,8 @@ import unicodedata
 
 
 def _n(s):
-    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower()
+    s = str(s or "").replace("\u2019", "'").replace("\u2018", "'")            # curly apostrophes (n’a pas, don’t) would otherwise disappear
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
     return re.sub(r"\s+", " ", s)
 
 
@@ -26,7 +27,9 @@ CTX = _rx(r"candidature|candidat|recrut|embauche|\bposte\b|offre d.emploi|applic
           r"\brh\b|recruiter|recruteur|\bjob\b|position|\bcdi\b|\bcdd\b|alternance|stage\b")
 NEG = _rx(r"malheureusement|regrett?ons?|nous (ne )?(pouvons|retenons|allons) pas|ne pas (donner suite|poursuivre|retenir)|n.a pas (ete )?retenue?|"
           r"pas ete retenue?|non retenue?|candidature (n.a pas|ne )|autres? (candidats?|profils?)|poursuivre avec (d.autres|un autre)|"
-          r"unfortunately|regret to|not (be )?(moving|going) forward|decided (not )?to (move|proceed|pursue)|other candidates|"
+          r"unfortunately(?!.{0,40}(repl|read|receiv|respond)).{0,140}(not (be )?(moving|progressing|proceeding|able|selected|move|invit)|won.t|unable|"
+          r"decided not|no relevant|don.t have|not to move|not (be )?(taking|going))|regret to|not (be )?(moving|going|progressing) forward|"
+          r"decided (not )?to (move|proceed|pursue)(?!( forward| ahead)? with (you|your)\b)|"
           r"won.t be (moving|proceeding)|ne correspond pas|ne donnerons pas suite")
 POS = _rx(r"felicitations|nous avons le plaisir|heureux (de|d.) (vous )?(annoncer|informer|proposer|accueillir)|ravis (de|d.)|"
           r"candidature (a (ete )?retenue|est retenue|retenue)|votre profil (nous a|a retenu)|nous souhaitons (vous )?(rencontrer|proposer|inviter|poursuivre)|"
