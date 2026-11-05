@@ -107,6 +107,10 @@ SYSTEM = (
     "Emails : si un brouillon est en attente et que l'utilisateur dit seulement oui/envoie, ne rappelle PAS mail_send (le bot s'en charge). "
     "S'il demande de changer le brouillon (en anglais, plus court...), reprends le texte du brouillon montre dans la conversation et rappelle mail_send avec la version modifiee ; "
     "n'utilise jamais le texte d'un ancien email sans qu'il le demande. Ne montre jamais tes reflexions. "
+    "ACTIONS : ne dis JAMAIS 'c'est fait' si le resultat de l'outil ne le confirme pas ; s'il dit que ca n'a pas marche, dis-le tel quel et propose une solution. "
+    "Emails : tu peux AGIR : mail_manage (effacer = corbeille recuperable, archiver, marquer lu, spam), mail_clean (menage : supprime toutes les pubs d'un coup), "
+    "mail_reply (repondre dans le meme fil). Fais-le directement des que l'utilisateur le demande, sans redemander ni dire que tu ne peux pas. "
+    "Pour repondre : ecris toi-meme une vraie reponse (pas de modele vide), puis il appuie sur Envoyer. "
     "Emails : mail_send prepare un brouillon que l'utilisateur valide avec les boutons Oui/Non ou /oui (tu n'envoies jamais seul). "
     "Quand l'utilisateur t'envoie une photo ou un fichier, il est range dans ~/recus (chemin donne dans le message) : analyse-le, et range-le ou deplace-le avec run_command si on te le demande. "
     "Taches longues : decoupe-les en etapes, enchaine les outils, ou utilise schedule_task pour continuer plus tard et envoyer le resultat. "
@@ -641,7 +645,8 @@ RE_OUT_MAC = re.compile(_OUT + r"(?:mac|mac mini|ordinateur|ordi|haut parleurs?|
 RE_OUT_AUTO = re.compile(_OUT.replace("(?: sur| a| dans)", "(?: en| sur)") + r"(?:auto|automatique)|sortie (?:en )?auto(?:matique)?")
 
 # telecommande : "allume la tele", "eteins la tele", "ouvre youtube sur la tele", "telecommande"...
-RE_TV_POWER = re.compile(r"(?:jessica )?(?:allume|eteins|eteint|rallume|reveille)(?: moi)?(?: la| le)? ?(?:tele|television|tv)")
+RE_TV_POWER = re.compile(r"(?:jessica )?(?:(?:peux tu|tu peux|pourrais tu|est ce que tu peux|veux tu|il faut que tu|je veux que tu|vas y|va)\s+)?"
+                         r"(allume|allumer|eteins|eteint|eteindre|rallume|rallumer|reveille|reveiller)(?: moi)?(?: la| le)? ?(?:tele|television|tv)(?: maintenant| tout de suite| la)?")
 RE_TV_APP = re.compile(r"(?:jessica )?(?:ouvre|lance|mets|met|va sur)(?: moi)?(?: l| la| le)? ?(youtube|netflix|prime(?: video)?|disney(?: plus)?)"
                        r"(?: sur| dans| de)?(?: la| le| l)? ?(?:tele|television|tv)")
 RE_TV_CHANNEL = re.compile(r"(?:jessica )?(?:mets|met|va sur|passe sur|mets moi)(?: la)? ?(?:chaine|tele|tv) (?:numero |n )?(\d{1,3})")
@@ -751,7 +756,18 @@ def tv_power(want):
     if want == "off" and not on:
         return "La tele est deja eteinte."
     res = tv_do("power")
-    return ("Je l'allume." if want == "on" else "Je l'eteins.") if res == "OK" else res
+    if res != "OK":
+        return res
+    for _ in range(8):                                  # on verifie pour de vrai (jusqu'a ~12 s) au lieu de dire "fait" a l'aveugle
+        time.sleep(1.5)
+        _tv_cache["t"] = 0.0
+        now_on = tv_on()
+        if now_on == (want == "on"):
+            return "La tele est allumee." if want == "on" else "La tele est eteinte."
+    if want == "on":
+        return ("J'ai envoye l'ordre mais la tele ne s'est PAS allumee. Elle est peut-etre completement eteinte (plus de Wi-Fi) : "
+                "il faut l'allumer une fois a la main, ou activer dans ses reglages l'option qui la laisse joignable par le reseau en veille.")
+    return "J'ai envoye l'ordre mais la tele est toujours allumee."
 
 
 def start_pairing(chat_id):
@@ -893,7 +909,7 @@ def quick_music(text):
         return None
     m = RE_TV_POWER.fullmatch(t)
     if m:
-        return tv_power("on" if t.split()[0] in ("allume", "rallume", "reveille") else "off")
+        return tv_power("on" if m.group(1).startswith(("all", "rall", "reveil")) else "off")
     m = RE_TV_CHANNEL.fullmatch(t)
     if m:
         return tv_channel(m.group(1))
@@ -1134,6 +1150,16 @@ TOOLS = [{"functionDeclarations": [
      "texte exact avec des boutons Oui/Non. Dis-lui juste que le brouillon attend son clic. to = adresse(s), subject, body, account = numero de boite (defaut 1).",
      "parameters": {"type": "object", "properties": {"to": {"type": "array", "items": {"type": "string"}}, "subject": {"type": "string"},
                     "body": {"type": "string"}, "account": {"type": "integer"}}, "required": ["to", "subject", "body"]}},
+    {"name": "mail_manage", "description": "Agit sur des emails (ids donnes par mail_list / mail_search) : action = delete (corbeille, recuperable), archive, read, unread, spam, star. "
+     "Jusqu'a 30 mails a la fois. Fais-le directement quand l'utilisateur le demande, sans redemander.",
+     "parameters": {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "string"}},
+                    "action": {"type": "string", "enum": ["delete", "archive", "read", "unread", "spam", "star"]}}, "required": ["ids", "action"]}},
+    {"name": "mail_clean", "description": "NETTOIE la boite de reception : met a la corbeille toutes les pubs et newsletters (le tri protege les mails importants). "
+     "days = jusqu'a combien de jours en arriere (30 par defaut), dry_run=true pour seulement compter sans rien supprimer. A utiliser pour 'fais le menage', 'supprime les pubs'.",
+     "parameters": {"type": "object", "properties": {"days": {"type": "integer"}, "limit": {"type": "integer"}, "dry_run": {"type": "boolean"}}}},
+    {"name": "mail_reply", "description": "REPOND a un email (meme fil de discussion) : id = id du mail (mail_list / mail_search), body = texte de ta reponse (ecris-la toi-meme, polie, "
+     "dans la langue du mail, signee du prenom de l'utilisateur si tu le connais). reply_all=true pour repondre a tous. L'utilisateur voit le texte et appuie sur Envoyer.",
+     "parameters": {"type": "object", "properties": {"id": {"type": "string"}, "body": {"type": "string"}, "reply_all": {"type": "boolean"}}, "required": ["id", "body"]}},
     {"name": "web_search", "description": "Cherche sur le web pour des infos recentes ou verifiables (kind=news pour l'actualite). Inutile pour la conversation simple.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "kind": {"type": "string", "enum": ["text", "news"]}, "limit": {"type": "integer"}}, "required": ["query"]}},
     {"name": "play_music", "description": "Joue une musique ou une video YouTube (audio) sur la sortie choisie (Mac mini ou tele). Donne titre et artiste, ou un lien.",
@@ -1150,7 +1176,7 @@ TOOLS = [{"functionDeclarations": [
     {"name": "tv_remote", "description": "Telecommande de la television Sony. action : power (marche/arret), home, back, up, down, left, right, ok, "
      "menu, input (source), mute, volume_up, volume_down (volume de la TELE, par crans), play_pause, stop, next, previous, "
      "ou une appli a ouvrir : youtube, netflix, prime, disney. times = nombre d'appuis (ex. 5 crans de volume). "
-     "Pour allumer/eteindre, utilise power_on ou power_off (verifie l'etat avant). Autres : channel (value = numero de chaine), "
+     "Pour allumer/eteindre, utilise TOUJOURS power_on ou power_off (verifie l'etat avant ET apres, et dit la verite : ne dis 'c'est fait' que si le resultat le confirme). Autres : channel (value = numero de chaine), "
      "type (value = texte a taper dans la recherche affichee), ch_up, ch_down, guide, info, captions, rewind, forward, hdmi1, hdmi2, hdmi3, search, settings.",
      "parameters": {"type": "object", "properties": {"action": {"type": "string"}, "times": {"type": "integer"}, "value": {"type": "string"}}, "required": ["action"]}},
     {"name": "show_on_screen", "description": "Affiche un message sur l'ecran du Mac mini pendant 1 minute.",
@@ -1285,14 +1311,14 @@ def _imap_q(name):
     return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _mail_open(n=1, folder="INBOX"):
+def _mail_open(n=1, folder="INBOX", readonly=True):
     import imaplib
     acc = next((a for a in _mail_accounts() if a["n"] == n), None)
     if not acc:
         raise RuntimeError("boite mail non configuree (MAIL_USER / MAIL_PASS dans .env)")
     c = imaplib.IMAP4_SSL(acc["host"], timeout=20)
     c.login(acc["user"], acc["pw"])
-    c.select(_imap_q(folder), readonly=True)         # lecture seule : rien n'est marque comme lu, rien n'est supprime
+    c.select(_imap_q(folder), readonly=readonly)     # lecture seule par defaut : rien n'est marque comme lu, rien n'est supprime
     return c
 
 
@@ -1520,6 +1546,185 @@ def mail_read(uid):
         return {"erreur": scrub(e)[:200]}
 
 
+# ---------------------------------------------------------------- emails : agir (corbeille, archive, lu, spam, nettoyage, reponse)
+def _parse_mid(mid):
+    """'2:123@Dossier' -> (boite 2, uid '123', dossier)."""
+    n, _, rest = (mid if ":" in mid else "1:" + mid).partition(":")
+    num, _, folder = rest.partition("@")
+    return int(re.sub(r"\D", "", n) or 1), re.sub(r"\D", "", num), folder or "INBOX"
+
+
+def _special_folder(c, kind):
+    """Nom du dossier corbeille / spam / archives de la boite (d'apres les drapeaux IMAP, sinon d'apres le nom)."""
+    flag = {"trash": "\\trash", "junk": "\\junk", "archive": "\\archive"}[kind]
+    rx = {"trash": r"trash|corbeille|deleted|supprim", "junk": r"junk|spam|bulk|indesirable", "archive": r"^archive|archiv"}[kind]
+    typ, data = c.list()
+    by_name = None
+    for raw in data or []:
+        line = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+        m = re.match(r'\((?P<fl>[^)]*)\)\s+(?:"[^"]*"|NIL)\s+(?P<name>.+)$', line)
+        if not m:
+            continue
+        name = m.group("name").strip().strip('"')
+        if flag in m.group("fl").lower():
+            return name
+        if by_name is None and re.search(rx, name, re.I) and "\\noselect" not in m.group("fl").lower():
+            by_name = name
+    return by_name
+
+
+def _mail_act(c, gmail, uid, action):
+    """Une action sur un mail deja selectionne en ecriture. Rien n'est jamais efface pour de bon : 'supprimer' = corbeille (recuperable)."""
+    if action in ("read", "unread"):
+        c.uid("store", uid, "+FLAGS" if action == "read" else "-FLAGS", "(\\Seen)")
+    elif action in ("star", "unstar"):
+        c.uid("store", uid, "+FLAGS" if action == "star" else "-FLAGS", "(\\Flagged)")
+    elif gmail and action == "delete":
+        c.uid("store", uid, "+X-GM-LABELS", "(\\Trash)")
+    elif gmail and action == "spam":
+        c.uid("store", uid, "+X-GM-LABELS", "(\\Spam)")
+        c.uid("store", uid, "-X-GM-LABELS", "(\\Inbox)")
+    elif gmail and action == "archive":
+        c.uid("store", uid, "-X-GM-LABELS", "(\\Inbox)")
+    else:                                              # Yahoo, Outlook, iCloud... : on copie dans le bon dossier puis on retire de celui-ci
+        dest = _special_folder(c, {"delete": "trash", "spam": "junk", "archive": "archive"}[action])
+        if not dest:
+            raise RuntimeError("dossier " + {"delete": "corbeille", "spam": "spam", "archive": "archives"}[action] + " introuvable")
+        typ, _ = c.uid("copy", uid, _imap_q(dest))
+        if typ != "OK":
+            raise RuntimeError("copie vers " + dest + " refusee")
+        c.uid("store", uid, "+FLAGS", "(\\Deleted)")
+
+
+def mail_manage(ids, action):
+    """Supprime (corbeille), archive, marque lu / non lu, spam, etoile : jusqu'a 30 mails d'un coup."""
+    if action not in ("delete", "archive", "read", "unread", "spam", "star", "unstar"):
+        return {"erreur": "action inconnue : delete, archive, read, unread, spam, star"}
+    ids = [str(i) for i in (ids or [])][:30]
+    if not ids:
+        return {"erreur": "aucun id de mail (utilise ceux de mail_list ou mail_search)"}
+    groups = {}
+    for mid in ids:
+        n, uid, folder = _parse_mid(mid)
+        if uid:
+            groups.setdefault((n, folder), []).append(uid)
+    done, errs = 0, []
+    for (n, folder), uids in groups.items():
+        try:
+            acc = next(a for a in _mail_accounts() if a["n"] == n)
+            gmail = "gmail" in acc["host"] or "google" in acc["host"]
+            c = _mail_open(n, folder, readonly=False)
+            try:
+                for uid in uids:
+                    try:
+                        _mail_act(c, gmail, uid, action)
+                        done += 1
+                    except Exception as e:
+                        errs.append(f"{uid} : {scrub(e)[:80]}")
+                if not gmail and action in ("delete", "spam", "archive"):
+                    c.expunge()
+            finally:
+                try:
+                    c.logout()
+                except Exception:
+                    pass
+        except Exception as e:
+            errs.append(f"boite {n} : {scrub(e)[:100]}")
+    res = {"fait": done, "action": action}
+    if action == "delete":
+        res["note"] = "mis a la corbeille : recuperable pendant ~30 jours"
+    if errs:
+        res["erreurs"] = errs[:5]
+    return res
+
+
+def mail_clean(days=30, limit=100, dry_run=False):
+    """Nettoie la boite de reception : met a la corbeille toutes les PUBS et newsletters (jamais les mails importants), via le tri."""
+    import email
+    try:
+        days, limit = max(1, int(days or 30)), max(1, min(int(limit or 100), 200))
+    except (TypeError, ValueError):
+        days, limit = 30, 100
+    since = datetime.now() - timedelta(days=days)
+    total, shown, errs, seen_inbox = 0, [], [], 0
+    for acc in _mail_accounts():
+        try:
+            gmail = "gmail" in acc["host"] or "google" in acc["host"]
+            c = _mail_open(acc["n"], "INBOX", readonly=dry_run)
+            try:
+                typ, data = c.uid("search", None, "SINCE", f"{since.day:02d}-{_MONTHS[since.month - 1]}-{since.year}")
+                victims = []
+                for u in data[0].split()[-limit:]:
+                    typ, d = c.uid("fetch", u, _HDRS)
+                    h = email.message_from_bytes(d[0][1])
+                    de, sujet = _mail_dec(h["From"])[:80], _mail_dec(h["Subject"])[:100]
+                    seen_inbox += 1
+                    t = _tri(de, sujet, h)
+                    if t["niveau"] == "pub" and t["type"] in ("pub", "alerte emploi"):
+                        victims.append(u)
+                        if len(shown) < 6:
+                            shown.append(f"{de.split('<')[0].strip()[:30]} : {sujet[:50]}")
+                if not dry_run:
+                    for u in victims:
+                        try:
+                            _mail_act(c, gmail, u, "delete")
+                        except Exception as e:
+                            errs.append(scrub(e)[:80])
+                            victims = victims[:-1]
+                    if not gmail and victims:
+                        c.expunge()
+                total += len(victims)
+            finally:
+                try:
+                    c.logout()
+                except Exception:
+                    pass
+        except Exception as e:
+            errs.append(f"{acc['user']} : {scrub(e)[:100]}")
+    res = {"pubs_trouvees" if dry_run else "mis_a_la_corbeille": total, "mails_examines": seen_inbox, "exemples": shown or "aucun"}
+    if not dry_run:
+        res["note"] = "recuperables dans la corbeille ; les mails importants n'ont pas ete touches"
+    if errs:
+        res["erreurs"] = errs[:3]
+    return res
+
+
+def mail_reply_request(chat_id, args):
+    """Prepare la reponse a un mail (meme fil de discussion) : l'utilisateur voit le texte et appuie sur Envoyer."""
+    import email
+    from email.utils import parseaddr, getaddresses
+    n, uid, folder = _parse_mid(str(args.get("id", "")))
+    body = str(args.get("body", "")).strip()
+    if not uid or not body:
+        return {"erreur": "il faut l'id du mail et le texte de la reponse"}
+    try:
+        c = _mail_open(n, folder)
+        try:
+            typ, d = c.uid("fetch", uid, "(BODY.PEEK[HEADER.FIELDS (FROM REPLY-TO TO CC SUBJECT MESSAGE-ID REFERENCES)])")
+            h = email.message_from_bytes(d[0][1])
+        finally:
+            c.logout()
+        acc = next(a for a in _mail_accounts() if a["n"] == n)
+    except Exception as e:
+        return {"erreur": "mail introuvable : " + scrub(e)[:120]}
+    to = [parseaddr(_mail_dec(h["Reply-To"] or h["From"]))[1]]
+    if args.get("reply_all") is True:
+        extra = [a for _, a in getaddresses([str(h["To"] or ""), str(h["Cc"] or "")]) if a and a.lower() != acc["user"].lower()]
+        to += [a for a in extra if a not in to]
+    to = [x for x in to if re.fullmatch(r"[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+", x)][:6]
+    if not to:
+        return {"erreur": "pas d'adresse de reponse dans ce mail"}
+    subj = _mail_dec(h["Subject"])
+    p = {"id": uuid.uuid4().hex[:6], "acc": n, "to": to, "subject": subj if re.match(r"(?i)^(re|rép|ref)\s*:", subj) else "Re: " + subj,
+         "body": body[:5000], "in_reply_to": str(h["Message-ID"] or "").strip(),
+         "references": (str(h["References"] or "") + " " + str(h["Message-ID"] or "")).strip()[-900:]}
+    db.setex(f"pending_mail:{chat_id}", 900, json.dumps(p))
+    send_confirm(chat_id, f"Reponse prete (depuis {acc['user']}) :\nA : {', '.join(to)}\nSujet : {p['subject']}\n\n{p['body']}\n\nJe l'envoie ?",
+                 p["id"], "Envoyer")
+    return {"statut": "brouillon de reponse montre a l'utilisateur avec des boutons Oui / Non. Ne dis rien de plus."}
+
+
+
 _SMTP = {"gmail.com": "smtp.gmail.com", "googlemail.com": "smtp.gmail.com", "yahoo.com": "smtp.mail.yahoo.com", "yahoo.fr": "smtp.mail.yahoo.com",
          "outlook.com": "smtp.office365.com", "hotmail.com": "smtp.office365.com", "hotmail.fr": "smtp.office365.com", "icloud.com": "smtp.mail.me.com"}
 
@@ -1549,6 +1754,9 @@ def mail_send_now(p):
         raise RuntimeError("serveur d'envoi inconnu pour " + acc["user"])
     m = EmailMessage()
     m["From"], m["To"], m["Subject"] = acc["user"], ", ".join(p["to"]), p["subject"]
+    if p.get("in_reply_to"):
+        m["In-Reply-To"] = p["in_reply_to"]
+        m["References"] = p.get("references") or p["in_reply_to"]
     m.set_content(p["body"])
     with smtplib.SMTP_SSL(host, 465, timeout=25) as s:
         s.login(acc["user"], acc["pw"])
@@ -2496,6 +2704,13 @@ def run_tool(chat_id, name, args, links):
             return {"resultat": f"{n} tache(s) " + ("supprimee(s)" if args.get("remove") is True else "terminee(s)"), "reste": todo_texts() or "rien, tout est fait"}
         if name == "mail_send":
             return mail_send_request(chat_id, args)
+        if name == "mail_reply":
+            return mail_reply_request(chat_id, args)
+        if name == "mail_manage":
+            ids = args.get("ids") or []
+            return mail_manage(ids if isinstance(ids, list) else [ids], str(args.get("action", "")))
+        if name == "mail_clean":
+            return mail_clean(args.get("days", 30), args.get("limit", 100), args.get("dry_run") is True)
         if name in ("mail_list", "mail_read", "mail_search"):
             links.append("(email lu)")          # contenu externe : marque la conversation comme "sensible"
             if name == "mail_search":
@@ -2522,8 +2737,10 @@ def run_tool(chat_id, name, args, links):
                     return {"resultat": "texte tape"}
                 except Exception as e:
                     return {"erreur": "la tele ne repond pas : " + type(e).__name__}
+            if act in ("on", "off", "allume", "eteins", "eteindre", "allumer"):
+                return {"resultat": tv_power("on" if act in ("on", "allume", "allumer") else "off")}
             res = tv_do(act, int(args.get("times", 1) or 1))
-            return {"resultat": "fait" if res == "OK" else res}
+            return {"resultat": "touche envoyee (pas de verification)" if res == "OK" else res}
         if name == "change_volume":
             return {"resultat": change_volume(int(args.get("delta", 15)))}
         if name == "set_volume":
@@ -2637,7 +2854,7 @@ TOOL_GROUPS = [
     (r"musique|son\b|volume|joue|mets|chanson|pause|reprend|stop|\bdis\b|parle|annonce|ecran|titre|artiste|playlist|youtube|sortie|haut.?parleur|ecoute",
      {"play_music", "music_control", "change_volume", "set_volume", "set_output", "say_aloud", "show_on_screen"}),
     (r"tele|chaine|netflix|youtube|prime|disney|hdmi|allume|eteins|remote|source|sony|telecommande", {"tv_remote", "show_remote"}),
-    (r"mail|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche", {"mail_list", "mail_read", "mail_send", "mail_search"}),
+    (r"mail|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|pub\\b|pubs", {"mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply"}),
     (r"agenda|calendrier|rendez|rdv|reunion|meet|evenement|planning|dispo|semaine|demain|aujourd|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|calendar",
      {"calendar_list", "calendar_create", "calendar_delete"}),
     (r"image|photo|dessin|logo|illustr|picture|affiche|wallpaper|fond d|visuel|montre", {"generate_image", "find_image", "send_photo"}),

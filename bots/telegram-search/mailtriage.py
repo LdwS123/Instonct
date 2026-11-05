@@ -38,7 +38,7 @@ STEP = _rx(r"entretien|interview|rendez-vous|\brdv\b|creneau|disponibilites?|vis
            r"prise de contact|premier echange|schedule a call|book a (time|call|slot)|calendly|invitation:")
 # ---- other things that matter
 FACTURE = _rx(r"facture|invoice|\brecu\b|receipt|paiement|payment|prelevement|echeance|relance|rappel de paiement|amende|avis d.imposition|"
-              r"impots?|remboursement|refund|virement|solde|quittance|loyer|abonnement (renouvel|expir)")
+              r"impots?|remboursement|refund|virement|\bsolde\b|quittance|loyer|abonnement (renouvel|expir)")
 COLIS = _rx(r"colis|livraison (prevue|aujourd|demain|en cours|effectuee)|votre commande|commande (n|expediee|confirmee|#)|expedi|suivi de (colis|commande)|"
             r"point relais|mondial relay|colissimo|chronopost|\bups\b|\bdhl\b|\bfedex\b|\bdpd\b|out for delivery|your (order|package|parcel)|a ete livre")
 SECURITE = _rx(r"code (de )?(verification|securite|confirmation|connexion|a usage unique)|verification code|one-time|\botp\b|\b2fa\b|mot de passe|password|"
