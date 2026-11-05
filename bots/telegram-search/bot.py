@@ -3167,6 +3167,14 @@ def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _r
                 log.warning("llm %s : reponse avec brouillon interne, on passe au suivant", model)
                 db.setex(f"cool:{model}", 600, 1)
                 continue
+            try:
+                m0 = r.json()["choices"][0]["message"]
+            except (ValueError, KeyError, IndexError, TypeError):
+                m0 = None
+            if m0 is not None and not m0.get("tool_calls") and not (m0.get("content") or "").strip():       # reponse vide (le modele a tout depense en reflexion) : on essaie le suivant
+                log.warning("llm %s : reponse vide, on passe au suivant", model)
+                db.setex(f"cool:{model}", 30, 1)
+                continue
             return r
         if r.status_code == 429:
             m = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)s", r.text)       # Groq dit lui-meme quand ca remarche a nouveau
@@ -3273,6 +3281,8 @@ def agent(chat_id, user_parts, oral=False, taint=False):
 
 
 def remember(chat_id, question, answer):
+    if re.search(r"<\|(?:channel|call|start|end|message|return)\|>", answer or ""):          # jamais de brouillon interne dans la memoire
+        return
     key = f"hist:{chat_id}"
     db.rpush(key, json.dumps({"role": "user", "parts": [{"text": question}]}),
              json.dumps({"role": "model", "parts": [{"text": answer}]}))
