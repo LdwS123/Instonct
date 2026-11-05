@@ -139,9 +139,9 @@ Instinct AI는 투자를 받은 팀이 만든 진짜 제품이고, Instonct는 �
 ## 작동 방식
 
 - **두뇌**: OpenAI 호환 모델이면 무엇이든 (기본값은 Groq `gpt-oss-120b` / `20b`, 적응형 추론 강도), 선택적으로 Gemini 폴백.
-- **도구**: 모델이 약 35개의 도구(메일, 캘린더, 브라우저, 파일, 음악, TV, 셸...)를 호출합니다. [`bots/telegram-search/bot.py`](../bots/telegram-search/bot.py)의 `TOOLS`를 참고하세요.
-- **브라우저**: [Lightpanda](https://github.com/lightpanda-io/browser), 2010년형 CPU에서도 돌아가는 아주 작은 헤드리스 브라우저(RAM 약 25 MB). [`webagent.py`](../bots/telegram-search/webagent.py)를 참고하세요.
-- **채널**: Telegram은 롱 폴링(열린 포트 없음), WhatsApp은 [`whatsapp.py`](../bots/telegram-search/whatsapp.py)(`127.0.0.1`의 작은 웹훅)를 통해 연결합니다.
+- **도구**: 모델이 약 35개의 도구(메일, 캘린더, 브라우저, 파일, 음악, TV, 셸...)를 호출합니다. [`catalog.py`](../bots/telegram-search/instonct/catalog.py)의 `TOOLS`를 참고하세요.
+- **브라우저**: [Lightpanda](https://github.com/lightpanda-io/browser), 2010년형 CPU에서도 돌아가는 아주 작은 헤드리스 브라우저(RAM 약 25 MB). [`webagent.py`](../bots/telegram-search/instonct/webagent.py)를 참고하세요.
+- **채널**: Telegram은 롱 폴링(열린 포트 없음), WhatsApp은 [`whatsapp.py`](../bots/telegram-search/instonct/whatsapp.py)(`127.0.0.1`의 작은 웹훅)를 통해 연결합니다.
 - **상태**: Redis (대화 기록, 기억, 알림, 감시).
 - **접속**: SSH + [Tailscale](https://tailscale.com), `ufw`는 기본적으로 모두 차단. 서버 설정은 [`home-server.md`](home-server.md)에 있습니다.
 
@@ -166,7 +166,7 @@ Linux 머신, Python 3, Redis, **Telegram 봇 토큰**([@BotFather](https://t.me
 git clone https://github.com/LdwS123/Instonct.git && cd Instonct
 sudo apt install redis-server python3-venv espeak-ng mpv alsa-utils      # 음성 + 음악 (선택 사항)
 python3 -m venv ~/bots/venv && ~/bots/venv/bin/pip install -r bots/telegram-search/requirements.txt
-mkdir -p ~/bots/telegram-search && cp bots/telegram-search/*.py ~/bots/telegram-search/
+mkdir -p ~/bots/telegram-search && cp -r bots/telegram-search/bot.py bots/telegram-search/instonct ~/bots/telegram-search/
 
 cat > ~/bots/.env <<'EOF'
 TELEGRAM_TOKEN=...

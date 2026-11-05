@@ -140,9 +140,9 @@ Instinct AI फ़ंडिंग वाली टीम का बनाया 
 ## यह कैसे काम करता है
 
 - **दिमाग**: कोई भी OpenAI-संगत मॉडल (डिफ़ॉल्ट रूप से Groq `gpt-oss-120b` / `20b`, अनुकूली रीज़निंग एफ़र्ट के साथ), वैकल्पिक Gemini फ़ॉलबैक।
-- **टूल**: मॉडल लगभग 35 टूल कॉल करता है (मेल, कैलेंडर, ब्राउज़र, फ़ाइलें, संगीत, TV, शेल...)। देखें [`bots/telegram-search/bot.py`](../bots/telegram-search/bot.py) में `TOOLS`।
-- **ब्राउज़र**: [Lightpanda](https://github.com/lightpanda-io/browser), एक छोटा-सा हेडलेस ब्राउज़र (~25 MB RAM) जो 2010 के CPU पर भी चल जाता है। देखें [`webagent.py`](../bots/telegram-search/webagent.py)।
-- **चैनल**: Telegram लॉन्ग पोलिंग से (कोई पोर्ट खुला नहीं), WhatsApp [`whatsapp.py`](../bots/telegram-search/whatsapp.py) के ज़रिए (`127.0.0.1` पर एक छोटा-सा वेबहुक)।
+- **टूल**: मॉडल लगभग 35 टूल कॉल करता है (मेल, कैलेंडर, ब्राउज़र, फ़ाइलें, संगीत, TV, शेल...)। देखें [`catalog.py`](../bots/telegram-search/instonct/catalog.py) में `TOOLS`।
+- **ब्राउज़र**: [Lightpanda](https://github.com/lightpanda-io/browser), एक छोटा-सा हेडलेस ब्राउज़र (~25 MB RAM) जो 2010 के CPU पर भी चल जाता है। देखें [`webagent.py`](../bots/telegram-search/instonct/webagent.py)।
+- **चैनल**: Telegram लॉन्ग पोलिंग से (कोई पोर्ट खुला नहीं), WhatsApp [`whatsapp.py`](../bots/telegram-search/instonct/whatsapp.py) के ज़रिए (`127.0.0.1` पर एक छोटा-सा वेबहुक)।
 - **स्थिति (State)**: Redis (हिस्ट्री, याददाश्त, रिमाइंडर, निगरानी)।
 - **पहुँच**: SSH + [Tailscale](https://tailscale.com), `ufw` डिफ़ॉल्ट रूप से बंद। सर्वर सेटअप [`docs/home-server.md`](home-server.md) में है।
 
@@ -167,7 +167,7 @@ Instinct AI फ़ंडिंग वाली टीम का बनाया 
 git clone https://github.com/LdwS123/Instonct.git && cd Instonct
 sudo apt install redis-server python3-venv espeak-ng mpv alsa-utils      # वॉइस + संगीत (वैकल्पिक)
 python3 -m venv ~/bots/venv && ~/bots/venv/bin/pip install -r bots/telegram-search/requirements.txt
-mkdir -p ~/bots/telegram-search && cp bots/telegram-search/*.py ~/bots/telegram-search/
+mkdir -p ~/bots/telegram-search && cp -r bots/telegram-search/bot.py bots/telegram-search/instonct ~/bots/telegram-search/
 
 cat > ~/bots/.env <<'EOF'
 TELEGRAM_TOKEN=...

@@ -7,7 +7,7 @@ runs bots 24/7 (one systemd service per bot). Instonct is the main one.
 
 | File | Purpose |
 |---|---|
-| `bots/telegram-search/` | The Instonct bot: brain (`bot.py`), calendar (`gcal.py`), browser (`webagent.py`), WhatsApp channel (`whatsapp.py`), TV remote (`tvremote.py`) |
+| `bots/telegram-search/` | The Instonct bot: the `instonct/` package (AI, tools, TV, mail, browser, calendar, WhatsApp...) started by `bot.py` |
 | `systemd/bot-telegram.service` | Starts the bot at boot and restarts it if it crashes |
 | `scripts/google-auth.py` | Authorizes the bot to use your Google Calendar (once) |
 | `scripts/ecran-status` | Text dashboard shown on the Mac mini's own screen (IP, load, temperature, RAM, bots) |

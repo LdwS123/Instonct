@@ -10,7 +10,6 @@ Nothing is sent anywhere. forget() erases everything.
 """
 import hashlib
 import statistics
-import time
 import unicodedata
 from datetime import datetime
 

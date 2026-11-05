@@ -140,9 +140,9 @@ Instinct AI — настоящий продукт, созданный коман
 ## Как это работает
 
 - **Мозг**: любая OpenAI-совместимая модель (по умолчанию Groq `gpt-oss-120b` / `20b` с адаптивной глубиной рассуждений), опциональный резерв на Gemini.
-- **Инструменты**: модель вызывает около 35 инструментов (почта, календарь, браузер, файлы, музыка, ТВ, оболочка...). Смотрите `TOOLS` в [`bots/telegram-search/bot.py`](../bots/telegram-search/bot.py).
-- **Браузер**: [Lightpanda](https://github.com/lightpanda-io/browser), крошечный headless-браузер (~25 МБ ОЗУ), который работает даже на процессоре 2010 года. Смотрите [`webagent.py`](../bots/telegram-search/webagent.py).
-- **Каналы**: Telegram через long polling (без открытого порта), WhatsApp через [`whatsapp.py`](../bots/telegram-search/whatsapp.py) (небольшой вебхук на `127.0.0.1`).
+- **Инструменты**: модель вызывает около 35 инструментов (почта, календарь, браузер, файлы, музыка, ТВ, оболочка...). Смотрите `TOOLS` в [`catalog.py`](../bots/telegram-search/instonct/catalog.py).
+- **Браузер**: [Lightpanda](https://github.com/lightpanda-io/browser), крошечный headless-браузер (~25 МБ ОЗУ), который работает даже на процессоре 2010 года. Смотрите [`webagent.py`](../bots/telegram-search/instonct/webagent.py).
+- **Каналы**: Telegram через long polling (без открытого порта), WhatsApp через [`whatsapp.py`](../bots/telegram-search/instonct/whatsapp.py) (небольшой вебхук на `127.0.0.1`).
 - **Состояние**: Redis (история, память, напоминания, слежения).
 - **Доступ**: SSH + [Tailscale](https://tailscale.com), `ufw` по умолчанию закрыт. Настройка сервера описана в [`docs/home-server.md`](home-server.md).
 
@@ -167,7 +167,7 @@ Instinct AI — настоящий продукт, созданный коман
 git clone https://github.com/LdwS123/Instonct.git && cd Instonct
 sudo apt install redis-server python3-venv espeak-ng mpv alsa-utils      # голос + музыка (необязательно)
 python3 -m venv ~/bots/venv && ~/bots/venv/bin/pip install -r bots/telegram-search/requirements.txt
-mkdir -p ~/bots/telegram-search && cp bots/telegram-search/*.py ~/bots/telegram-search/
+mkdir -p ~/bots/telegram-search && cp -r bots/telegram-search/bot.py bots/telegram-search/instonct ~/bots/telegram-search/
 
 cat > ~/bots/.env <<'EOF'
 TELEGRAM_TOKEN=...

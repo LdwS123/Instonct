@@ -140,9 +140,9 @@ Instinct AI は、資金を得たチームが作った本物のプロダクト�
 ## 仕組み
 
 - **頭脳**:OpenAI 互換のモデルならどれでも(デフォルトは Groq の `gpt-oss-120b` / `20b`、推論の強度は適応的に調整)。オプションで Gemini へのフォールバックも可能。
-- **ツール**:モデルが約 35 個のツール(メール、カレンダー、ブラウザ、ファイル、音楽、テレビ、シェルなど)を呼び出します。[`bots/telegram-search/bot.py`](../bots/telegram-search/bot.py) の `TOOLS` を参照してください。
-- **ブラウザ**:[Lightpanda](https://github.com/lightpanda-io/browser) は小さなヘッドレスブラウザ(RAM 約 25 MB)で、2010 年製の CPU でも動きます。[`webagent.py`](../bots/telegram-search/webagent.py) を参照してください。
-- **チャンネル**:Telegram はロングポーリング(ポートを開けない)、WhatsApp は [`whatsapp.py`](../bots/telegram-search/whatsapp.py)(`127.0.0.1` 上の小さな Webhook)経由です。
+- **ツール**:モデルが約 35 個のツール(メール、カレンダー、ブラウザ、ファイル、音楽、テレビ、シェルなど)を呼び出します。[`catalog.py`](../bots/telegram-search/instonct/catalog.py) の `TOOLS` を参照してください。
+- **ブラウザ**:[Lightpanda](https://github.com/lightpanda-io/browser) は小さなヘッドレスブラウザ(RAM 約 25 MB)で、2010 年製の CPU でも動きます。[`webagent.py`](../bots/telegram-search/instonct/webagent.py) を参照してください。
+- **チャンネル**:Telegram はロングポーリング(ポートを開けない)、WhatsApp は [`whatsapp.py`](../bots/telegram-search/instonct/whatsapp.py)(`127.0.0.1` 上の小さな Webhook)経由です。
 - **状態管理**:Redis(履歴、メモリ、リマインダー、監視)。
 - **接続**:SSH + [Tailscale](https://tailscale.com)、`ufw` はデフォルトで全閉。サーバーのセットアップは [`home-server.md`](home-server.md) にあります。
 
@@ -167,7 +167,7 @@ Instinct AI は、資金を得たチームが作った本物のプロダクト�
 git clone https://github.com/LdwS123/Instonct.git && cd Instonct
 sudo apt install redis-server python3-venv espeak-ng mpv alsa-utils      # 音声 + 音楽(任意)
 python3 -m venv ~/bots/venv && ~/bots/venv/bin/pip install -r bots/telegram-search/requirements.txt
-mkdir -p ~/bots/telegram-search && cp bots/telegram-search/*.py ~/bots/telegram-search/
+mkdir -p ~/bots/telegram-search && cp -r bots/telegram-search/bot.py bots/telegram-search/instonct ~/bots/telegram-search/
 
 cat > ~/bots/.env <<'EOF'
 TELEGRAM_TOKEN=...

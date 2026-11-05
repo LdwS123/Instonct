@@ -139,9 +139,9 @@ Instinct AI 是由一支获得融资的团队打造的真正产品；Instonct �
 ## 工作原理
 
 - **大脑**：任何兼容 OpenAI 的模型（默认是 Groq 的 `gpt-oss-120b` / `20b`，带自适应推理强度），可选 Gemini 作为回退。
-- **工具**：模型会调用约 35 个工具（邮件、日历、浏览器、文件、音乐、电视、shell……）。参见 [`bots/telegram-search/bot.py`](../bots/telegram-search/bot.py) 中的 `TOOLS`。
-- **浏览器**：[Lightpanda](https://github.com/lightpanda-io/browser)，一款小巧的无头浏览器（约 25 MB 内存），连 2010 年的 CPU 都能跑。参见 [`webagent.py`](../bots/telegram-search/webagent.py)。
-- **通道**：Telegram 采用长轮询（无需开放端口），WhatsApp 通过 [`whatsapp.py`](../bots/telegram-search/whatsapp.py)（一个运行在 `127.0.0.1` 上的小型 webhook）。
+- **工具**：模型会调用约 35 个工具（邮件、日历、浏览器、文件、音乐、电视、shell……）。参见 [`catalog.py`](../bots/telegram-search/instonct/catalog.py) 中的 `TOOLS`。
+- **浏览器**：[Lightpanda](https://github.com/lightpanda-io/browser)，一款小巧的无头浏览器（约 25 MB 内存），连 2010 年的 CPU 都能跑。参见 [`webagent.py`](../bots/telegram-search/instonct/webagent.py)。
+- **通道**：Telegram 采用长轮询（无需开放端口），WhatsApp 通过 [`whatsapp.py`](../bots/telegram-search/instonct/whatsapp.py)（一个运行在 `127.0.0.1` 上的小型 webhook）。
 - **状态**：Redis（历史记录、记忆、提醒、监控）。
 - **访问**：SSH + [Tailscale](https://tailscale.com)，`ufw` 默认全部关闭。服务器的搭建方法见 [`docs/home-server.md`](home-server.md)。
 
@@ -166,7 +166,7 @@ Instinct AI 是由一支获得融资的团队打造的真正产品；Instonct �
 git clone https://github.com/LdwS123/Instonct.git && cd Instonct
 sudo apt install redis-server python3-venv espeak-ng mpv alsa-utils      # 语音 + 音乐（可选）
 python3 -m venv ~/bots/venv && ~/bots/venv/bin/pip install -r bots/telegram-search/requirements.txt
-mkdir -p ~/bots/telegram-search && cp bots/telegram-search/*.py ~/bots/telegram-search/
+mkdir -p ~/bots/telegram-search && cp -r bots/telegram-search/bot.py bots/telegram-search/instonct ~/bots/telegram-search/
 
 cat > ~/bots/.env <<'EOF'
 TELEGRAM_TOKEN=...

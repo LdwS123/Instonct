@@ -156,11 +156,40 @@ Pick Instonct if you want the same idea with your hands on the wheel.
 ## How it works
 
 - **Brain**: any OpenAI-compatible model (Groq `gpt-oss-120b` / `20b` by default, with adaptive reasoning effort), optional Gemini fallback.
-- **Tools**: the model calls ~60 tools, picking only the relevant ones per request to save tokens on free tiers (mail, calendar, browser, files, music, TV, shell...). See `TOOLS` in [`bots/telegram-search/bot.py`](bots/telegram-search/bot.py).
-- **Browser**: [Lightpanda](https://github.com/lightpanda-io/browser), a tiny headless browser (~25 MB of RAM) that even runs on a 2010 CPU. See [`webagent.py`](bots/telegram-search/webagent.py).
-- **Channels**: Telegram by long polling (no open port), WhatsApp through [`whatsapp.py`](bots/telegram-search/whatsapp.py) (a small webhook on `127.0.0.1`).
+- **Tools**: the model calls ~60 tools, picking only the relevant ones per request to save tokens on free tiers (mail, calendar, browser, files, music, TV, shell...). See [`catalog.py`](bots/telegram-search/instonct/catalog.py).
+- **Browser**: [Lightpanda](https://github.com/lightpanda-io/browser), a tiny headless browser (~25 MB of RAM) that even runs on a 2010 CPU. See [`webagent.py`](bots/telegram-search/instonct/webagent.py).
+- **Channels**: Telegram by long polling (no open port), WhatsApp through [`whatsapp.py`](bots/telegram-search/instonct/whatsapp.py) (a small webhook on `127.0.0.1`).
 - **State**: Redis (history, memory, reminders, watches).
 - **Reach**: SSH + [Tailscale](https://tailscale.com), `ufw` closed by default. The server setup is in [`docs/home-server.md`](docs/home-server.md).
+
+## Code layout
+
+The bot is a small Python package (`bots/telegram-search/instonct/`), split by job so that each file fits in your head.
+`bot.py` is only a three-line entry point, so the systemd unit (`python bot.py`) does not change.
+
+| Section | Modules | What is inside |
+|---|---|---|
+| Foundations | `config`, `texts`, `core` | settings from `.env`, fixed texts, Redis + logging + Telegram/WhatsApp sending |
+| The AI | `llm`, `catalog`, `brain`, `dispatch` | providers and fallback chain, tool catalogue, agent loop, tool routing |
+| Home | `music`, `cast`, `television`, `sound` | music, Chromecast, Android TV remote, voice and volume |
+| Work | `mail`, `web`, `pagewatch`, `google` | mail and triage, browser agent, page watching, calendar |
+| Life | `media`, `life`, `system_tools` | images and files, habits, lists and routines, shell / files / HTTP tools |
+| Chat | `handlers`, `callbacks`, `commands` | Telegram messages, Yes/No buttons, free commands |
+| Background | `reminders`, `monitor`, `remote_access`, `runner` | reminder and watch loops, remote screen and Siri, entry point |
+| Optional libraries | `extras`, `habits`, `whatsapp`, `tvremote`, `gcal`, `webagent`, `plus`, `screen`, `mailtriage` | loaded through `optional.py`: the bot keeps running if one is missing |
+
+Modules call each other as `module.function(...)` (resolved when called), so there are no import cycles to untangle.
+A local variable must never reuse a module name: a test checks that.
+
+```bash
+cd bots/telegram-search
+pip install -r requirements-dev.txt
+redis-server --daemonize yes     # tests use Redis database 9 (REDIS_DB) and never touch your real data
+pytest                           # fallback between AI providers, leaked-reasoning protection, tools, wiring
+ruff check .
+```
+
+GitHub Actions runs the same checks on every push.
 
 ## Safety, because an agent with a shell needs it
 
@@ -183,7 +212,7 @@ You need a Linux box, Python 3, Redis, a **Telegram bot token** (from [@BotFathe
 git clone https://github.com/LdwS123/Instonct.git && cd Instonct
 sudo apt install redis-server python3-venv espeak-ng mpv alsa-utils      # voice + music (optional)
 python3 -m venv ~/bots/venv && ~/bots/venv/bin/pip install -r bots/telegram-search/requirements.txt
-mkdir -p ~/bots/telegram-search && cp bots/telegram-search/*.py ~/bots/telegram-search/
+mkdir -p ~/bots/telegram-search && cp -r bots/telegram-search/bot.py bots/telegram-search/instonct ~/bots/telegram-search/
 
 cat > ~/bots/.env <<'EOF'
 TELEGRAM_TOKEN=...

@@ -1,0 +1,19 @@
+[project]
+name = "instonct"
+description = "A Telegram (and WhatsApp) assistant that runs on a small home server."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dynamic = ["version"]
+
+[tool.ruff]
+line-length = 200            # the code keeps short comments on the same line as the code
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F", "B006", "B011", "UP032", "W6"]
+ignore = ["F401"]            # optional.py and __init__.py re-export on purpose
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning"]
