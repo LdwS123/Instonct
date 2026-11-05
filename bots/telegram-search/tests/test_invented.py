@@ -88,3 +88,15 @@ def test_asking_for_real_research_offers_the_tool_that_reads_pages():
 
 def test_buying_offers_the_procedure_tool():
     assert "demarche" in {t["function"]["name"] for t in catalog.select_tools("Achete-moi des piles")}
+
+
+def test_a_tool_that_failed_cannot_back_up_a_claim(monkeypatch):
+    monkeypatch.setattr(dispatch, "run_tool", lambda chat, name, args, links: {"erreur": "page bloquee"})
+    sent = script(monkeypatch, Reply("", call("browser", action="open")), Reply("J'ai ouvert la page."), Reply("La page est bloquee."))
+    assert brain.agent_groq(7, "Ouvre la page")[0] == "La page est bloquee." and len(sent) == 3
+
+
+def test_a_tool_that_worked_backs_up_the_claim(monkeypatch):
+    monkeypatch.setattr(dispatch, "run_tool", lambda chat, name, args, links: {"page": "ok"})
+    sent = script(monkeypatch, Reply("", call("browser", action="open")), Reply("J'ai ouvert la page."))
+    assert brain.agent_groq(7, "Ouvre la page")[0] == "J'ai ouvert la page." and len(sent) == 2

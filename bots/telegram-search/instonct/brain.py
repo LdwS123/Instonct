@@ -79,7 +79,6 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 continue
             return answer + (llm.UNVERIFIED % ", ".join(unsure[:6]) if unsure else ""), links
         used_tools = True
-        ran.update(c["function"]["name"] for c in calls)
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
         drafted = False
         for c in calls:
@@ -97,6 +96,8 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 out = {"erreur": "assez cherche : reponds avec ce que tu as, et dis clairement ce que tu n'as pas trouve"}
             else:
                 out = dispatch.run_tool(chat_id, c["function"]["name"], args, links)
+            if "erreur" not in out:                   # a tool that failed did nothing: "c'est fait" stays a false claim
+                ran.add(name)
             drafted = drafted or (c["function"]["name"] == "mail_send" and "statut" in out)
             shown = json.dumps(out, ensure_ascii=False)[:4000]
             known.append(shown)
