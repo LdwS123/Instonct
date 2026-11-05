@@ -49,6 +49,8 @@ almost anything: a Raspberry Pi, an old laptop, a cheap VPS.
 | **Voice** | Voice notes in (Whisper), voice notes or spoken answers out. |
 | **Files** | Send it a photo, PDF or CSV and ask about it. It can send files back. |
 | **Do anything** | Runs Python to compute or process data, reads and writes files, calls any web API (`http_request`), runs long jobs in the background and messages you when they finish. Risky or destructive steps ask for a **Yes** first. |
+| **Documents** | Reads PDFs, Word, Excel and photos of text (OCR); creates PDF, Word, Excel, CSV files and sends them; QR codes; downloads files; charts with matplotlib. |
+| **Places & more** | Sends a map pin or a poll, Wikipedia summaries, currency and crypto conversion, Wake-on-LAN, video/audio download with yt-dlp, ffmpeg conversions. |
 | **News & weather** | "Latest news about X" (searched, then opened and cross-checked), "Weather in Lyon tomorrow". |
 | **Dates** | "Remind me on 2027-01-15 at 9:00", scheduled tasks up to 60 days ahead. |
 | **Favorites & images** | "Save this song", `/favoris`; it can generate or find an image and send it to you. |
@@ -144,7 +146,7 @@ Pick Instonct if you want the same idea with your hands on the wheel.
 ## How it works
 
 - **Brain**: any OpenAI-compatible model (Groq `gpt-oss-120b` / `20b` by default, with adaptive reasoning effort), optional Gemini fallback.
-- **Tools**: the model calls ~40 tools, picking only the relevant ones per request to save tokens on free tiers (mail, calendar, browser, files, music, TV, shell...). See `TOOLS` in [`bots/telegram-search/bot.py`](bots/telegram-search/bot.py).
+- **Tools**: the model calls ~50 tools, picking only the relevant ones per request to save tokens on free tiers (mail, calendar, browser, files, music, TV, shell...). See `TOOLS` in [`bots/telegram-search/bot.py`](bots/telegram-search/bot.py).
 - **Browser**: [Lightpanda](https://github.com/lightpanda-io/browser), a tiny headless browser (~25 MB of RAM) that even runs on a 2010 CPU. See [`webagent.py`](bots/telegram-search/webagent.py).
 - **Channels**: Telegram by long polling (no open port), WhatsApp through [`whatsapp.py`](bots/telegram-search/whatsapp.py) (a small webhook on `127.0.0.1`).
 - **State**: Redis (history, memory, reminders, watches).

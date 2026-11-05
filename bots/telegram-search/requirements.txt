@@ -4,3 +4,16 @@ ddgs
 catt
 androidtvremote2
 edge-tts
+# documents, QR codes, OCR helpers (extras.py; the bot still starts without them)
+python-docx
+openpyxl
+reportlab
+qrcode
+pillow
+pypdf
+beautifulsoup4
+yt-dlp
+# optional, for python_run data work and charts. On very old CPUs (no SSE4.2, e.g. Core 2 Duo) pin: numpy==1.26.4 pandas<2.3 matplotlib<3.10
+# pandas
+# matplotlib
+# system packages: sudo apt install ffmpeg tesseract-ocr tesseract-ocr-fra pandoc poppler-utils imagemagick

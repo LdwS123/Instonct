@@ -31,6 +31,10 @@ from datetime import datetime
 import redis
 import requests
 
+try:                                       # extra tools (documents, QR, places, Wikipedia, currencies...) : the bot still runs without them
+    import extras
+except Exception as _e:                    # noqa
+    extras = None
 try:                                       # WhatsApp is optional: it only turns on when the WA_* variables are set
     import whatsapp
 except Exception as _e:
@@ -117,7 +121,12 @@ SYSTEM = (
     "Tout calcul, chiffre precis ou traitement de donnees : python_run, jamais de tete. Creer un fichier ou du code : write_file puis python_run/run_command pour le tester ; lire un fichier ou un dossier : read_file. "
     "Faits recents : web_search (kind=news pour l'actualite) puis fetch_url pour lire la source ; croise deux sources si c'est important. "
     "API ou service web : http_request. Tache longue (telechargement, installation, conversion) : run_command avec background=true, le bot previendra a la fin. "
-    "Tu peux installer ce qu'il faut avec apt ou pip : yt-dlp (videos, sous-titres), ffmpeg, pandoc, tesseract-ocr (lire une image), imagemagick, qrcode, pandas, matplotlib. "
+    "Deja installes : yt-dlp (videos/audio : run_command background=true puis send_file), ffmpeg, pandoc, tesseract (OCR), imagemagick (convert), pdftotext ; "
+    "en Python (python_run) : pandas, matplotlib (graphiques : matplotlib.use('Agg'), enregistre dans ~/exports puis send_photo), pillow, qrcode, reportlab, python-docx, openpyxl, pypdf, beautifulsoup4, requests. "
+    "Autre chose ? apt ou pip. Outils dedies : read_document (PDF, Word, Excel, image/OCR), make_document (pdf/docx/xlsx/csv...), qr_code, download_file, "
+    "send_location, send_poll, wikipedia, money (devises et cryptos), wake_on_lan. "
+    "APIs gratuites sans cle pour http_request : open-meteo.com (meteo detaillee), api.frankfurter.app, api.coingecko.com, nominatim.openstreetmap.org (adresses), "
+    "router.project-osrm.org (itineraires), api.sunrise-sunset.org, restcountries.com, openlibrary.org, ip-api.com, hacker-news.firebaseio.com. "
     "Rappel ou tache a une date precise : parametre when (AAAA-MM-JJ HH:MM) de set_reminder / schedule_task, sans calculer de minutes. "
     "AUCUNE LIMITE : ne reponds jamais 'je ne peux pas' si un outil peut le faire. Si aucun outil dedie n'existe, debrouille-toi avec run_command, "
     "browser ou fetch_url (installe ce qu'il faut, ecris un script, cherche la solution) et fais-le vraiment. "
@@ -879,7 +888,8 @@ SAFE_CMDS = {"ls", "df", "free", "uptime", "ps", "date", "whoami", "hostname", "
 
 def run_shell(cmd, timeout=120):
     try:
-        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=timeout, cwd=os.path.expanduser("~"))
+        env = {**os.environ, "PATH": os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", "")}   # yt-dlp & co. du venv
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=timeout, cwd=os.path.expanduser("~"), env=env)
     except subprocess.TimeoutExpired:
         return f"(arrete apres {timeout} s : trop long. Relance avec background=true pour une tache longue.)"
     return ((r.stdout + r.stderr).strip() or "(aucune sortie)")[-3000:] + ("" if r.returncode == 0 else f"\n(code {r.returncode})")
@@ -1166,6 +1176,26 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"method": {"type": "string"}, "url": {"type": "string"}, "headers": {"type": "string"}, "body": {"type": "string"}}, "required": ["url"]}},
     {"name": "weather", "description": "Meteo du moment dans une ville.",
      "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}},
+    {"name": "read_document", "description": "Lit le texte d'un PDF, Word (.docx), Excel (.xlsx), image (OCR), ODT, EPUB... (chemin du fichier ; start pour la suite).",
+     "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "start": {"type": "integer"}}, "required": ["path"]}},
+    {"name": "make_document", "description": "Cree un fichier pdf, docx, xlsx, csv, txt, md, html ou json et l'envoie dans le chat. "
+     "Texte : '# ' titre, '## ' sous-titre, '- ' puce. xlsx/csv : content = lignes CSV ou liste JSON.",
+     "parameters": {"type": "object", "properties": {"kind": {"type": "string"}, "content": {"type": "string"}, "name": {"type": "string"}, "title": {"type": "string"}},
+                    "required": ["kind", "content"]}},
+    {"name": "qr_code", "description": "Fabrique un QR code (lien, texte, wifi...) et l'envoie en image.",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+    {"name": "download_file", "description": "Telecharge un fichier depuis une adresse https vers le Mac mini (200 Mo max) ; send=true pour aussi l'envoyer dans le chat.",
+     "parameters": {"type": "object", "properties": {"url": {"type": "string"}, "name": {"type": "string"}, "send": {"type": "boolean"}}, "required": ["url"]}},
+    {"name": "send_location", "description": "Envoie un lieu (carte) dans le chat : query = nom ou adresse, ou latitude + longitude.",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "latitude": {"type": "number"}, "longitude": {"type": "number"}, "title": {"type": "string"}}}},
+    {"name": "send_poll", "description": "Envoie un sondage dans le chat (question + 2 a 10 options).",
+     "parameters": {"type": "object", "properties": {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}}, "required": ["question", "options"]}},
+    {"name": "wikipedia", "description": "Resume d'un article Wikipedia (lang : fr, en, es...).",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "lang": {"type": "string"}}, "required": ["query"]}},
+    {"name": "money", "description": "Convertit un montant entre devises (EUR, USD...) ou cryptos (BTC, ETH...) au cours du jour.",
+     "parameters": {"type": "object", "properties": {"amount": {"type": "number"}, "from": {"type": "string"}, "to": {"type": "string"}}, "required": ["from", "to"]}},
+    {"name": "wake_on_lan", "description": "Reveille un ordinateur du reseau local a partir de son adresse MAC (Wake-on-LAN).",
+     "parameters": {"type": "object", "properties": {"mac": {"type": "string"}}, "required": ["mac"]}},
 ]}]
 
 
@@ -1739,6 +1769,90 @@ def send_image(chat_id, data, caption=""):
     return r.status_code == 200
 
 
+def send_local_file(chat_id, path):
+    """Envoie un fichier du Mac mini dans le chat (Telegram ou WhatsApp, 50 Mo max). True si c'est parti."""
+    if os.path.getsize(path) > 50 * 2**20:
+        return False
+    with open(path, "rb") as f:
+        if is_wa(chat_id):
+            return bool(whatsapp.send_document(wa_to(chat_id), f.read(), os.path.basename(path)))
+        r = requests.post(f"{TG}/sendDocument", data={"chat_id": chat_id}, files={"document": (os.path.basename(path), f)}, timeout=180)
+        return r.status_code == 200
+
+
+EXTRA_TOOLS = {"read_document", "make_document", "qr_code", "download_file", "send_location", "send_poll", "wikipedia", "money", "wake_on_lan"}
+
+
+def tool_extra(chat_id, name, args, links):
+    """Outils de extras.py : le calcul est la-bas, ici on gere les chemins sures, l'envoi dans le chat et la 'contamination'."""
+    if extras is None:
+        return {"erreur": "extras.py absent ou ses bibliotheques ne sont pas installees"}
+    try:
+        if name == "read_document":
+            path = _path(args.get("path", ""), WORK)
+            if SECRET_PATH.search(path) or not os.path.isfile(path):
+                return {"erreur": "fichier introuvable ou sensible"}
+            links.append("doc:" + path)                       # le contenu vient de l'exterieur : meme prudence qu'une page web
+            return {"texte": extras.read_document(path, args.get("start", 0))}
+        if name == "make_document":
+            path = extras.make_document(str(args.get("kind", "pdf")), str(args.get("content", "")), os.path.expanduser("~/exports"),
+                                        name=str(args.get("name", "")), title=str(args.get("title", "")))
+            ok = send_local_file(chat_id, path)
+            return {"resultat": "document cree" + (" et envoye dans le chat" if ok else " (envoi impossible)"), "chemin": path}
+        if name == "qr_code":
+            text = str(args.get("text", "")).strip()[:1500]
+            if not text:
+                return {"erreur": "text vide"}
+            path = extras.make_qr(text, os.path.expanduser(f"~/exports/qr_{int(time.time())}.png"))
+            with open(path, "rb") as f:
+                ok = send_image(chat_id, f.read(), "QR code")
+            return {"resultat": "QR code envoye" if ok else "envoi impossible", "chemin": path}
+        if name == "download_file":
+            url = str(args.get("url", ""))
+            path, n = extras.download(url, os.path.expanduser("~/recus"), str(args.get("name", "")), url_ok)
+            links.append(url)
+            sent = bool(args.get("send")) and send_local_file(chat_id, path)
+            return {"resultat": f"telecharge ({n // 1024} Ko)" + (", envoye dans le chat" if sent else ""), "chemin": path}
+        if name == "send_location":
+            lat, lon, label = args.get("latitude"), args.get("longitude"), str(args.get("title", ""))
+            if lat is None or lon is None:
+                found = extras.geocode(str(args.get("query", "")))
+                if not found:
+                    return {"erreur": "lieu introuvable"}
+                lat, lon, label = found[0], found[1], label or found[2]
+            lat, lon = float(lat), float(lon)
+            if is_wa(chat_id):
+                send(chat_id, f"{label or 'Lieu'} : https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=16/{lat}/{lon}")
+            elif label:
+                tg("sendVenue", chat_id=chat_id, latitude=lat, longitude=lon, title=label[:100], address=str(args.get("address", ""))[:200] or label[:200])
+            else:
+                tg("sendLocation", chat_id=chat_id, latitude=lat, longitude=lon)
+            return {"resultat": f"lieu envoye ({lat:.4f}, {lon:.4f})", "nom": label}
+        if name == "send_poll":
+            opts = [str(o)[:100] for o in (args.get("options") or []) if str(o).strip()][:10]
+            q = str(args.get("question", "")).strip()[:300]
+            if len(opts) < 2 or not q:
+                return {"erreur": "il faut une question et au moins 2 options"}
+            if is_wa(chat_id):
+                send(chat_id, q + "\n" + "\n".join(f"{i + 1}. {o}" for i, o in enumerate(opts)))
+            else:
+                tg("sendPoll", chat_id=chat_id, question=q, options=opts, is_anonymous=True)
+            return {"resultat": "sondage envoye"}
+        if name == "wikipedia":
+            res = extras.wikipedia(str(args.get("query", "")), str(args.get("lang", "fr")))
+            if not res:
+                return {"erreur": "aucun article trouve"}
+            links.append(res.get("lien") or "wikipedia")
+            return res
+        if name == "money":
+            return {"resultat": extras.money(float(args.get("amount", 1) or 1), str(args.get("from", "")), str(args.get("to", "")))}
+        if name == "wake_on_lan":
+            return {"resultat": extras.wake_on_lan(str(args.get("mac", "")))}
+    except Exception as e:
+        return {"erreur": f"{type(e).__name__}: {scrub(e)[:200]}"}
+    return {"erreur": "outil inconnu"}
+
+
 def _download_image(url):
     """Telecharge une image publique (10 Mo max). Renvoie les octets ou None."""
     if not url_ok(url):
@@ -1930,16 +2044,12 @@ def run_tool(chat_id, name, args, links):
                     n += 1
             return {"resultat": f"{n} souvenir(s) oublie(s)"}
         if name == "send_file":
-            path = os.path.expanduser(str(args.get("path", "")))
-            if re.search(r"\.env\b|id_rsa|shadow", path) or not os.path.isfile(path):
+            path = _path(args.get("path", ""), WORK)
+            if SECRET_PATH.search(path) or not os.path.isfile(path):
                 return {"erreur": "fichier introuvable ou sensible"}
-            with open(path, "rb") as f:
-                if is_wa(chat_id):
-                    if not whatsapp.send_document(wa_to(chat_id), f.read(), os.path.basename(path)):
-                        return {"erreur": "WhatsApp refused the file"}
-                else:
-                    requests.post(f"{TG}/sendDocument", data={"chat_id": chat_id}, files={"document": (os.path.basename(path), f)}, timeout=120)
-            return {"resultat": "envoye"}
+            return {"resultat": "envoye"} if send_local_file(chat_id, path) else {"erreur": "envoi refuse (fichier trop gros ? 50 Mo max)"}
+        if name in EXTRA_TOOLS:
+            return tool_extra(chat_id, name, args, links)
         if name == "schedule_task":
             rep_min = max(0, int(args.get("repeat_minutes", 0) or 0))
             if 0 < rep_min < 5:
@@ -2019,9 +2129,14 @@ TOOL_GROUPS = [
     (r"aime|adore|favori|garde|sauvegarde|top\b|kiff", {"favorite_add", "favorite_list", "favorite_remove"}),
     (r"surveill|previens|alerte|prix|stock|disponib|change|annonce", {"page_watch"}),
     (r"tache|programm|annule|toutes les|chaque|repete", {"list_tasks", "cancel_tasks"}),
+    (r"pdf|word|docx|excel|xlsx|csv|document|rapport|tableau|\bcv\b|lettre|facture|ocr|scan|telecharge|download|qr|convert|transcri|lis (?:ce|le|ca)|fichier|presentation|contrat|devis",
+     {"read_document", "make_document", "qr_code", "download_file"}),
+    (r"carte|lieu|adresse|position|itineraire|localis|sondage|vote|poll|maps|ou (?:est|se trouve)|restaurant|bar\b|pres de", {"send_location", "send_poll"}),
+    (r"euro|dollar|devise|convert|bitcoin|btc|eth\b|crypto|cours|taux|monnaie|usd|eur\b|livre sterling|yen|combien (?:fait|vaut|coute)", {"money"}),
+    (r"reveille|wake|wol\b|magic packet|allume (?:le |mon )?(?:pc|ordi)", {"wake_on_lan"}),
 ]
 CORE_TOOLS = {"run_command", "python_run", "read_file", "write_file", "http_request", "web_search", "fetch_url", "browser", "remember", "forget",
-              "send_file", "set_reminder", "schedule_task", "todo_add", "todo_list", "todo_done", "get_status", "weather"}
+              "send_file", "set_reminder", "schedule_task", "todo_add", "todo_list", "todo_done", "get_status", "weather", "wikipedia"}
 
 
 def select_tools(text):
@@ -2120,8 +2235,10 @@ def llm_call(messages, question, oral, tools=True, toolset=None):
         if r.status_code == 200:
             return r
         if r.status_code == 429:
-            db.setex(f"cool:{model}", 3600 if "per day" in r.text.lower() else 20, 1)
-        elif r.status_code != 400:                     # 400 = le modele a rate son appel d'outil : on tente le suivant
+            m = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)s", r.text)       # Groq dit lui-meme quand ca remarche a nouveau
+            wait = int(int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3))) + 2 if m else (3600 if "per day" in r.text.lower() else 20)
+            db.setex(f"cool:{model}", max(5, min(wait, 3600)), 1)
+        elif r.status_code not in (400, 413):          # 400 = appel d'outil rate, 413 = requete trop grosse pour CE modele : on tente le suivant, sans le bloquer
             db.setex(f"cool:{model}", 120, 1)
     return None
 
