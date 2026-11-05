@@ -1,0 +1,126 @@
+"""Mail triage for Instonct: decides if a mail is IMPORTANT (answer to an application, interview, invoice, parcel, security, a real person...)
+or just ADVERTISING / newsletter. No AI call, no quota: simple rules on the sender, the subject, the body start and two headers.
+
+classify(sender, subject, body="", bulk=False) -> {"niveau": "important" | "pub", "type": str, "label": str, "raison": str}
+  bulk = True when the mail has a List-Unsubscribe header or "Precedence: bulk" (typical of newsletters and ads).
+Rule of thumb: better one ad too many than one missed acceptance, so only clear ads are put aside.
+"""
+import re
+import unicodedata
+
+
+def _n(s):
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"\s+", " ", s)
+
+
+def _rx(p):
+    return re.compile(p, re.I)
+
+
+# ---- job hunting
+JOB_ALERT = _rx(r"offres? d.emploi|nouvelles? offres?|alertes? emploi|job alert|jobs? (for you|you may|recommended)|recommandations? d.emploi|"
+                r"postes? (pour vous|qui vous)|emplois? (pour vous|correspondant)|des offres|offres? pour vous|vous pourriez (aimer|etre interesse)|"
+                r"\d+ nouveaux? (emplois?|postes?|jobs?)|ils recrutent|recrute(nt)? (en ce moment|pres de)")
+CTX = _rx(r"candidature|candidat|recrut|embauche|\bposte\b|offre d.emploi|application|applying|hiring|talent|ressources humaines|"
+          r"\brh\b|recruiter|recruteur|\bjob\b|position|\bcdi\b|\bcdd\b|alternance|stage\b")
+NEG = _rx(r"malheureusement|regrett?ons?|nous (ne )?(pouvons|retenons|allons) pas|ne pas (donner suite|poursuivre|retenir)|n.a pas (ete )?retenue?|"
+          r"pas ete retenue?|non retenue?|candidature (n.a pas|ne )|autres? (candidats?|profils?)|poursuivre avec (d.autres|un autre)|"
+          r"unfortunately|regret to|not (be )?(moving|going) forward|decided (not )?to (move|proceed|pursue)|other candidates|"
+          r"won.t be (moving|proceeding)|ne correspond pas|ne donnerons pas suite")
+POS = _rx(r"felicitations|nous avons le plaisir|heureux (de|d.) (vous )?(annoncer|informer|proposer|accueillir)|ravis (de|d.)|"
+          r"candidature (a (ete )?retenue|est retenue|retenue)|votre profil (nous a|a retenu)|nous souhaitons (vous )?(rencontrer|proposer|inviter|poursuivre)|"
+          r"proposition d.embauche|promesse d.embauche|offre (ferme|de contrat)|contrat (de travail )?(a signer|joint)|bienvenue (chez|dans l.equipe)|"
+          r"congratulations|pleased to (offer|invite|inform)|we.d like to (invite|schedule|offer|meet)|we would like to (invite|schedule|offer|meet)|"
+          r"happy to (offer|invite)|offer letter|you.ve been (selected|shortlisted)|vous (etes|avez ete) (selectionne|retenu)")
+STEP = _rx(r"entretien|interview|rendez-vous|\brdv\b|creneau|disponibilites?|visio|google meet|teams|zoom|appel (telephonique|de presentation)|"
+           r"echange (telephonique|visio)|test (technique|de personnalite)|etape suivante|prochaine etape|next step|case study|"
+           r"prise de contact|premier echange|schedule a call|book a (time|call|slot)|calendly|invitation:")
+# ---- other things that matter
+FACTURE = _rx(r"facture|invoice|\brecu\b|receipt|paiement|payment|prelevement|echeance|relance|rappel de paiement|amende|avis d.imposition|"
+              r"impots?|remboursement|refund|virement|solde|quittance|loyer|abonnement (renouvel|expir)")
+COLIS = _rx(r"colis|livraison (prevue|aujourd|demain|en cours|effectuee)|votre commande|commande (n|expediee|confirmee|#)|expedi|suivi de (colis|commande)|"
+            r"point relais|mondial relay|colissimo|chronopost|\bups\b|\bdhl\b|\bfedex\b|\bdpd\b|out for delivery|your (order|package|parcel)|a ete livre")
+SECURITE = _rx(r"code (de )?(verification|securite|confirmation|connexion|a usage unique)|verification code|one-time|\botp\b|\b2fa\b|mot de passe|password|"
+               r"nouvelle connexion|connexion (suspecte|inhabituelle)|nouvel appareil|new (sign-in|login|device)|activite suspecte|suspicious|"
+               r"securite de votre compte|security alert|alerte de securite|compte (bloque|suspendu|piratage)")
+RDV = _rx(r"invitation|convocation|rendez-vous|reunion|meeting|rappel de rendez-vous|appointment|confirmation de (votre )?(rdv|reservation|rendez-vous)|"
+          r"reservation|\.ics")
+ADMIN_SENDER = _rx(r"francetravail|pole-?emploi|ameli|assurance-?maladie|\bcaf\b|caf\.fr|impots\.gouv|ants\.gouv|service-public|urssaf|"
+                   r"cpam|banque|bnp|societegenerale|credit-?agricole|boursorama|revolut|n26|paypal|\.gouv\.fr")
+# ---- advertising
+PROMO = _rx(r"-\s?\d+\s?(%|€|eur)|\d+\s?(%|€)\s?(de reduction|offert|de remise|sur)|promo|soldes?|reduction|remise|bon plan|code promo|vente flash|"
+            r"black friday|cyber monday|french days|derniers? jours|derniere chance|dernier(s)? (jours|instants)|ne manquez pas|profitez|"
+            r"offre (speciale|exclusive|limitee|du moment)|exclusif|exclusive|gratuit|offert|cadeau|jeu concours|gagnez|economisez|"
+            r"newsletter|a ne pas rater|nouveaute|nouvelle collection|decouvrez|\bdeals?\b|% off|sale\b|limited time|don.t miss|free shipping|"
+            r"livraison offerte|parrain|votre avis (nous|compte)|donnez votre avis|enquete|sondage")
+NOISE_SENDER = _rx(r"newsletter|marketing|promo|mailer-daemon|updates@|news@|offres?@|deals?@|hello@|bonjour@|contact@|info@|infos@|team@|"
+                   r"communication@|communaute|publicite|digest@|actualites?@")
+NOREPLY = _rx(r"no-?reply|do-?not-?reply|ne-?pas-?repondre|notifications?@|notify@|automated@|mailer@|bounce")
+
+
+def _res(niveau, typ, label, raison):
+    return {"niveau": niveau, "type": typ, "label": label, "raison": raison}
+
+
+def _hit(rx, text):
+    m = rx.search(text)
+    return m.group(0).strip() if m else ""
+
+
+def classify(sender, subject, body="", bulk=False):
+    frm, sub = _n(sender), _n(subject)
+    txt = _n(body)[:2500]
+    subject_and_body = sub + " " + txt
+    scope = sub if bulk else subject_and_body            # newsletters mention "candidature" everywhere: for them only the subject counts
+
+    # 1. job alerts ("12 nouvelles offres pour vous") are ads, even though they talk about jobs
+    h = _hit(JOB_ALERT, sub)
+    if h:
+        return _res("pub", "alerte emploi", "Pub : alerte d'offres d'emploi", f"« {h} »")
+
+    # 2. answer to an application / interview (the thing that matters most)
+    if CTX.search(scope) or (not bulk and CTX.search(frm)):
+        h = _hit(NEG, scope)
+        if h:
+            return _res("important", "refus", "REFUS de candidature", f"« {h} »")
+        h = _hit(POS, scope)
+        if h:
+            return _res("important", "acceptation", "BONNE NOUVELLE : acceptation ou suite positive", f"« {h} »")
+        h = _hit(STEP, scope)
+        if h:
+            return _res("important", "etape", "Candidature : prochaine etape / entretien", f"« {h} »")
+        if CTX.search(sub) and not PROMO.search(sub):
+            return _res("important", "candidature", "Candidature : reponse a lire", "le sujet parle de ta candidature")
+    elif not bulk:
+        h = _hit(NEG, sub) or ""
+        if h and _hit(STEP, sub):
+            return _res("important", "refus", "REFUS probable", f"« {h} »")
+
+    # 2b. a subject that talks about an interview is always worth a look, even from an automatic sender (e.g. "Rappel d'entretien")
+    h = _hit(_rx(r"entretien|interview|rappel de rendez-vous|rendez-vous (confirme|fixe)"), sub)
+    if h and not PROMO.search(sub):
+        return _res("important", "etape", "Entretien / rendez-vous : a ne pas rater", f"« {h} » dans le sujet")
+
+    # 3. clear ads
+    h = _hit(PROMO, sub)
+    if h and not (COLIS.search(sub) or FACTURE.search(sub) or SECURITE.search(sub)):
+        return _res("pub", "pub", "Pub", f"« {h} » dans le sujet")
+
+    # 4. practical things
+    for rx, typ, label in ((SECURITE, "securite", "Securite / code de verification"), (FACTURE, "facture", "Facture / paiement"),
+                           (COLIS, "colis", "Commande / colis"), (RDV, "rdv", "Rendez-vous / invitation")):
+        h = _hit(rx, sub if bulk else subject_and_body[:600])
+        if h:
+            return _res("important", typ, label, f"« {h} »")
+    if ADMIN_SENDER.search(frm) and not bulk:
+        return _res("important", "admin", "Administratif / banque", "expediteur officiel")
+
+    # 5. mass mailing that matched nothing above
+    if bulk:
+        return _res("pub", "pub", "Pub / newsletter", "mail envoye a beaucoup de gens (liste de diffusion)")
+    if NOISE_SENDER.search(frm) or NOREPLY.search(frm):
+        return _res("pub", "auto", "Message automatique", "expediteur automatique (no-reply, newsletter...)")
+
+    # 6. looks like a real person writing
+    return _res("important", "personne", "Message d'une personne", "pas une pub, pas un envoi automatique")
