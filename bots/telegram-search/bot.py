@@ -49,6 +49,14 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY", ""
 LLM_MODELS = [m.strip() for m in (os.environ.get("LLM_MODELS") or os.environ.get("GROQ_MODELS")
               or "openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b").split(",") if m.strip()]
 GROQ_KEY = LLM_API_KEY                                    # (old name, used in a few places below)
+# Optional second provider (e.g. Cerebras: LLM2_BASE_URL=https://api.cerebras.ai/v1, LLM2_API_KEY=..., LLM2_MODELS=gpt-oss-120b). Its models come after the first
+# provider's in the fallback order, so a daily quota running out at one provider just moves the work to the other.
+LLM2_BASE_URL = os.environ.get("LLM2_BASE_URL", "").rstrip("/")
+LLM2_API_KEY = os.environ.get("LLM2_API_KEY", "")
+LLM2_MODELS = [m.strip() for m in os.environ.get("LLM2_MODELS", "gpt-oss-120b").split(",") if m.strip()] if (LLM2_BASE_URL and LLM2_API_KEY) else []
+MODEL_API = {m: (LLM_BASE_URL, LLM_API_KEY) for m in LLM_MODELS} if LLM_API_KEY else {}      # model name -> (base url, key)
+MODEL_API.update({m: (LLM2_BASE_URL, LLM2_API_KEY) for m in LLM2_MODELS})
+ALL_MODELS = [m for m in LLM_MODELS if LLM_API_KEY] + [m for m in LLM2_MODELS if m not in LLM_MODELS]
 # Voice notes -> text (Whisper API of the same provider by default). STT_LANGUAGE empty = auto-detect, or e.g. "fr".
 STT_BASE_URL = os.environ.get("STT_BASE_URL", LLM_BASE_URL).rstrip("/")
 STT_API_KEY = os.environ.get("STT_API_KEY") or LLM_API_KEY
@@ -208,7 +216,7 @@ log = logging.getLogger("bot")
 def scrub(e):
     """Retire les secrets d'un message d'erreur avant de le journaliser."""
     s = str(e)
-    for secret in (TOKEN, GEMINI_KEY, LLM_API_KEY, STT_API_KEY, os.environ.get("WA_TOKEN", ""), os.environ.get("WA_APP_SECRET", "")):
+    for secret in (TOKEN, GEMINI_KEY, LLM_API_KEY, LLM2_API_KEY, STT_API_KEY, os.environ.get("WA_TOKEN", ""), os.environ.get("WA_APP_SECRET", "")):
         if secret:
             s = s.replace(secret, "***")
     return s
@@ -2180,7 +2188,7 @@ def effort(question, oral):
 
 def llm_models():
     """Model list in the order to try: the one picked with /model first, then the others as fallback."""
-    ms = list(LLM_MODELS)
+    ms = list(ALL_MODELS)
     pref = db.get("model_pref")
     if pref in ms:
         ms.remove(pref)
@@ -2193,17 +2201,18 @@ def model_command(chat_id, arg):
     arg = arg.strip()
     if arg.lower() in ("auto", "default", "reset"):
         db.delete("model_pref")
-        return "Back to automatic: " + LLM_MODELS[0] + " first, the others as backup."
+        return "Back to automatic: " + ALL_MODELS[0] + " first, the others as backup."
     if arg:
-        pick = LLM_MODELS[int(arg) - 1] if arg.isdigit() and 1 <= int(arg) <= len(LLM_MODELS) else (arg if arg in LLM_MODELS else None)
+        pick = ALL_MODELS[int(arg) - 1] if arg.isdigit() and 1 <= int(arg) <= len(ALL_MODELS) else (arg if arg in ALL_MODELS else None)
         if pick is None:
             return "Unknown model. Send /model to see the list."
         db.set("model_pref", pick)
         db.delete(f"cool:{pick}")
         return f"OK, I will use {pick} first."
     cur = llm_models()[0]
-    lines = [f"{i}. {m}{'  <- in use' if m == cur else ''}" for i, m in enumerate(LLM_MODELS, 1)]
-    return ("Models I can use (" + LLM_BASE_URL.split("//")[-1].split("/")[0] + "):\n" + "\n".join(lines)
+    host = lambda m: MODEL_API[m][0].split("//")[-1].split("/")[0]
+    lines = [f"{i}. {m} ({host(m)}){'  <- in use' if m == cur else ''}" for i, m in enumerate(ALL_MODELS, 1)]
+    return ("Models I can use:\n" + "\n".join(lines)
             + "\n\n/model 2 : use number 2 first\n/model auto : default order. If one fails, I try the next automatically.")
 
 
@@ -2222,8 +2231,9 @@ def llm_call(messages, question, oral, tools=True, toolset=None):
             continue
         t0 = time.time()
         try:
-            r = NET.post(f"{LLM_BASE_URL}/chat/completions", timeout=45,
-                         headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+            base, key = MODEL_API[model]
+            r = NET.post(f"{base}/chat/completions", timeout=45,
+                         headers={"Authorization": f"Bearer {key}"},
                          json={"model": model, "messages": messages, "tools": toolset or GROQ_TOOLS, "tool_choice": "auto" if tools else "none",
                                "temperature": 0.4, "max_tokens": 2000,
                                **({"reasoning_effort": effort(question, oral)} if "gpt-oss" in model else {})})
@@ -2308,7 +2318,7 @@ def agent(chat_id, user_parts, oral=False, taint=False):
     """Boucle d'agent : Gemini repond, ou demande des outils (musique, recherche web, commandes...) puis conclut.
     Renvoie (texte, liens) ; texte = None si Gemini est indisponible (message deja pret dans liens[0])."""
     if not GEMINI_KEY:
-        return None, ["No AI provider answered. Check LLM_API_KEY (or add GEMINI_API_KEY as a backup) and try again."]
+        return None, ["No AI provider answered. Check LLM_API_KEY / LLM2_API_KEY (or add GEMINI_API_KEY as a backup) and try again."]
     history = [json.loads(x) for x in db.lrange(f"hist:{chat_id}", 0, -1)]
     contents = history + [{"role": "user", "parts": user_parts}]
     links = ["(fichier recu)"] if taint else []
@@ -2341,7 +2351,7 @@ def remember(chat_id, question, answer):
 
 
 def ask(chat_id, question, oral=False, taint=False):
-    answer, links = agent_groq(chat_id, question, oral, taint) if GROQ_KEY else (None, [])
+    answer, links = agent_groq(chat_id, question, oral, taint) if ALL_MODELS else (None, [])
     if answer is None:
         answer, links = agent(chat_id, [{"text": question}], oral, taint)
     if answer is None:
@@ -3043,9 +3053,9 @@ def safe_handle(msg):
 
 
 def main():
-    if not LLM_API_KEY and not GEMINI_KEY:
+    if not ALL_MODELS and not GEMINI_KEY:
         raise SystemExit("No AI provider configured: set LLM_API_KEY (or GROQ_API_KEY) and/or GEMINI_API_KEY in the .env file.")
-    log.info("bot started (models: %s | backup: %s)", ", ".join(LLM_MODELS) if LLM_API_KEY else "none",
+    log.info("bot started (models: %s | backup: %s)", ", ".join(ALL_MODELS) or "none",
              "gemini" if GEMINI_KEY else "none")
     if whatsapp is not None and whatsapp.configured():
         whatsapp.serve(wa_dispatch, lambda i: not db.set(f"wa_seen:{i}", 1, nx=True, ex=86400))

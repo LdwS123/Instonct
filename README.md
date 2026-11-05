@@ -83,6 +83,8 @@ Use model names exactly as your provider writes them, and pick models that suppo
 
 - **Switch on the fly**: send `/model` to see the list, `/model 2` to use number 2 first, `/model auto` to go back.
 - **Automatic fallback**: if a model is rate-limited or down, the next one takes over by itself.
+- **Second provider** (recommended on free tiers, whose daily token quotas are small): add `LLM2_BASE_URL`, `LLM2_API_KEY` and `LLM2_MODELS`
+  (for example Cerebras: `https://api.cerebras.ai/v1`, models `gpt-oss-120b`). Its models are tried after the first provider's.
 - **Optional safety net**: add `GEMINI_API_KEY` and Google Gemini answers when your main provider is down (and reads images).
   Without it, Instonct runs fine on a single provider.
 - **Voice notes**: transcribed with a Whisper API (`STT_MODEL`, `STT_BASE_URL`, `STT_LANGUAGE`, same provider by default).
