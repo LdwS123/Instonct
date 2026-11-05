@@ -25,15 +25,17 @@ JOB_ALERT = _rx(r"offres? d.emploi|nouvelles? offres?|alertes? emploi|job alert|
                 r"\d+ nouveaux? (emplois?|postes?|jobs?)|ils recrutent|recrute(nt)? (en ce moment|pres de)")
 CTX = _rx(r"candidature|candidat|recrut|embauche|\bposte\b|offre d.emploi|application|applying|hiring|talent|ressources humaines|"
           r"\brh\b|recruiter|recruteur|\bjob\b|position|\bcdi\b|\bcdd\b|alternance|stage\b")
-NEG = _rx(r"malheureusement|regrett?ons?|nous (ne )?(pouvons|retenons|allons) pas|ne pas (donner suite|poursuivre|retenir)|n.a pas (ete )?retenue?|"
-          r"pas ete retenue?|non retenue?|candidature (n.a pas|ne )|autres? (candidats?|profils?)|poursuivre avec (d.autres|un autre)|"
-          r"unfortunately(?!.{0,40}(repl|read|receiv|respond)).{0,140}(not (be )?(moving|progressing|proceeding|able|selected|move|invit)|won.t|unable|"
-          r"decided not|no relevant|don.t have|not to move|not (be )?(taking|going))|regret to|not (be )?(moving|going|progressing) forward|"
-          r"decided (not )?to (move|proceed|pursue)(?!( forward| ahead)? with (you|your)\b)|"
-          r"won.t be (moving|proceeding)|(profil|candidature|experience).{0,60}ne correspond pas|ne correspond pas .{0,40}(profil|poste|attentes|recherche)|ne donnerons pas suite")
 # Said in a real refusal. Plain "unfortunately" is not enough in an acknowledgement ("unfortunately we cannot answer everyone").
-FIRM_NEG = _rx(r"regret to|regrett?ons?|malheureusement,? (nous|votre)|(will not|won.t|not) (be )?(mov|proceed|progress)|position has (now )?been filled|"
-               r"decided (not )?to (move|proceed|pursue)|poursuivre avec (d.autres|un autre)|n.a pas (ete )?retenue?|pas ete retenue?|ne donnerons pas suite|ne pas (donner suite|poursuivre|retenir)")
+_FIRM = (r"regret to|regrett?ons?|malheureusement,? (nous|votre)|(will not|won.t|not) (be )?(mov|proceed|progress)|position has (now )?been filled|"
+         r"decided not to (move|proceed|pursue|progress|continue|advance)|decided to (move|proceed|pursue)(?!( forward| ahead)? with (you|your)\b)|not to (proceed|progress|move)|"
+         r"(with|by|chosen|selected) (another|other|a different|a more) (\w+ )?(candidate|applicant|profile|person)|(was|were|been) not selected|not been selected|"
+         r"(position|role|poste) (is|has|est) (now )?(no longer|closed|been closed|pourvu)|going in a (\w+ )?direction|"
+         r"poursuivre avec (d.autres|un autre)|n.(a|est) pas (ete )?retenue?|pas ete retenue?|pas pu retenir|ne donnerons pas suite|ne pas (donner suite|poursuivre|retenir)|pas (pu )?donner suite")
+FIRM_NEG = _rx(_FIRM)
+NEG = _rx(_FIRM + r"|malheureusement|nous (ne )?(pouvons|retenons|allons) pas|non retenue?|candidature (n.a pas|ne )|autres? (candidats?|profils?)|"
+          r"unfortunately(?!.{0,40}(repl|read|receiv|respond|feedback|due to|if you|our emails)).{0,140}(not (be )?(moving|progressing|proceeding|able|selected|move|invit)|won.t|unable|"
+          r"decided not|no relevant|don.t have|not to move|not (be )?(taking|going))|"
+          r"won.t be (moving|proceeding)|(profil|candidature|experience).{0,60}ne correspond pas|ne correspond pas .{0,40}(profil|poste|attentes|recherche)")
 POS = _rx(r"felicitations|nous avons le plaisir|heureux (de|d.) (vous )?(annoncer|informer|proposer|accueillir)|ravis (de|d.)|"
           r"candidature (a (ete )?retenue|est retenue|retenue)|votre profil (nous a|a retenu)|nous souhaitons (vous )?(rencontrer|proposer|inviter|poursuivre)|"
           r"proposition d.embauche|promesse d.embauche|offre (ferme|de contrat)|contrat (de travail )?(a signer|joint)|bienvenue (chez|dans l.equipe)|"
@@ -43,7 +45,7 @@ STEP = _rx(r"entretien|interview|rendez-vous|\brdv\b|creneau|disponibilites?|vis
            r"echange (telephonique|visio)|test (technique|de personnalite)|etape suivante|prochaine etape|next step|case study|"
            r"prise de contact|premier echange|schedule a call|book a (time|call|slot)|calendly|invitation:")
 # In the body, "application", "position" or "job" often mean something else ("your Stripe application", "our position on privacy").
-STRONG_CTX = _rx(r"candidature|candidat|recrut|embauche|applying|your application (to|for|at|with)\b|appl(y|ied) (for|to) the .{0,60}(position|role|poste)|(for|on|about|regarding) your application|recruiter|recruteur|hiring (team|manager)|offre d.emploi|ressources humaines")
+STRONG_CTX = _rx(r"candidature|candidat|recrut|embauche|applying|your application (to|for|at|with)\b|appl(y|ied) (for|to) the .{0,60}(position|role|poste)|(for|on|about|regarding) your application|(proceed|move forward) with (an offer|your (candidacy|application))|recruiter|recruteur|hiring (team|manager)|offre d.emploi|ressources humaines")
 # An acknowledgement ("thanks for applying") usually describes the process, so words like "interview" in it promise nothing.
 ACK = _rx(r"(merci|thanks?|thank you)\b.{0,30}(candidature|application|applying|to apply|postul|interest in|votre interet)|bien recue?\b|avons (bien )?recu|a bien ete (recue?|envoyee|transmise|enregistree)|"
           r"(we.ve|we have|we) received|received your|application (was |has been |is )?(received|submitted|sent|complete)|candidature (bien )?(recue|envoyee|enregistree|transmise)|"
@@ -79,6 +81,16 @@ NOISE_SENDER = _rx(r"newsletter|marketing|promo|mailer-daemon|updates@|news@|off
 NOREPLY = _rx(r"no-?reply|do-?not-?reply|ne-?pas-?repondre|notifications?@|notify@|automated@|mailer@|bounce")
 
 
+_QUOTED = _rx(r"\bon [\s\S]{5,120}? wrote ?:|\ble [\s\S]{5,120}? a ecrit ?:|-{3,} ?(original message|message d.origine)|\bde ?: .{5,120} envoye ?:|\bfrom ?: .{5,120} sent ?:")
+
+
+def own_words(text):
+    """What this mail says itself, without the older mail it quotes: a question or a refusal in the quoted part is not news."""
+    text = _n(text)
+    m = _QUOTED.search(text)
+    return text[:m.start()] if m else text
+
+
 def _res(niveau, typ, label, raison):
     return {"niveau": niveau, "type": typ, "label": label, "raison": raison}
 
@@ -101,7 +113,7 @@ def _only_acknowledges(sub, txt, scope):
 
 def classify(sender, subject, body="", bulk=False):
     frm, sub = _n(sender), _n(subject)
-    txt = _n(body)[:2500]
+    txt = own_words(body)[:2500]
     subject_and_body = sub + " " + txt
     scope = sub if bulk else subject_and_body            # newsletters mention "candidature" everywhere: for them only the subject counts
 
@@ -112,8 +124,10 @@ def classify(sender, subject, body="", bulk=False):
 
     # 2. answer to an application / interview (the thing that matters most)
     if CTX.search(sub) or (not bulk and (CTX.search(frm) or STRONG_CTX.search(txt))):
-        h = _hit(NEG, scope)
-        if h and (_said_firmly(FIRM_NEG, scope) or not ACK.search(sub)):
+        # A company's refusal often comes through a mailing tool (bulk): when the subject is about the job, its text counts too.
+        said = subject_and_body if CTX.search(sub) else scope
+        h = _hit(NEG, said)
+        if h and (_said_firmly(FIRM_NEG, said) or (_said_firmly(NEG, said) and not ACK.search(sub) and not INTERVIEW_SUBJECT.search(sub))):
             return _res("important", "refus", "REFUS de candidature", f"« {h} »")
         if _only_acknowledges(sub, txt, scope):
             return _res("important", "candidature", "Candidature : bien recue", "simple accuse de reception")

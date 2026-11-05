@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from instonct import dispatch, guard, mail
+from instonct import dispatch, guard, mail, mailindex
 from instonct.core import db
 
 INCIDENT = "Check si j'ai eu des nouveaux mails de candidature"
@@ -15,7 +15,7 @@ def boxes(monkeypatch):
     done = []
     monkeypatch.setattr(mail, "mail_manage", lambda ids, action: done.append((ids, action)) or {"fait": len(ids), "action": action})
     monkeypatch.setattr(mail, "mail_clean", lambda *a: done.append(("clean", a)) or {"ok": 1})
-    monkeypatch.setattr(mail, "mail_refus", lambda *a: done.append(("refus", a)) or {"ok": 1})
+    monkeypatch.setattr(mailindex, "trash_refusals", lambda *a: done.append(("refus", a)) or {"ok": 1})
     monkeypatch.setattr(mail, "important_among", lambda ids: [])
     return done
 

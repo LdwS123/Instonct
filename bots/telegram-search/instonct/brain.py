@@ -45,7 +45,7 @@ def agent_groq(chat_id, question, oral=False, taint=False):
     """Agent loop on the main provider (OpenAI-compatible API, Groq by default). Returns (text, links) ; text = None if it is unavailable."""
     history = _recent_history(chat_id)
     links = ["(fichier recu)"] if taint else []
-    used_tools, nudged, seen = False, False, {}
+    used_tools, nudged, checked, seen, ran = False, False, False, {}, set()
     context = " ".join([question] + [h["content"] for h in history[-2:]])
     toolset = [] if catalog.is_small_talk(question) and not taint else catalog.select_tools(context)
     messages = [{"role": "system", "content": catalog.build_system(oral, toolset, context)}] + history + [{"role": "user", "content": question}]
@@ -63,8 +63,13 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 messages[0]["content"] = catalog.build_system(oral)
                 messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": llm.NUDGE}]
                 continue
+            if not checked and llm.false_claim(answer, ran):
+                checked = True
+                messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": llm.FALSE_CLAIM}]
+                continue
             return answer, links
         used_tools = True
+        ran.update(c["function"]["name"] for c in calls)
         messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
         drafted = False
         for c in calls:

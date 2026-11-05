@@ -5,7 +5,7 @@ from instonct.mailtriage import classify
 
 
 @pytest.mark.parametrize("subject,body", [
-    ("Thank you for applying to Acme!", "Konstantine, congratulations on taking the first step. A member of our recruiting team will be in touch. In the meantime, we invite you to learn more about Acme."),
+    ("Thank you for applying to Acme!", "Alex, congratulations on taking the first step. A member of our recruiting team will be in touch. In the meantime, we invite you to learn more about Acme."),
     ("Thanks for applying to Acme", "Your answers: please confirm your availability/notice period: immediate."),
     ("Thank you for applying to Acme", "We will reach out to discuss the next steps. In the meantime, we invite you to learn more about our hiring process."),
     ("Thank you for applying to Acme", "Details of any background checks will be set out in your offer letter. Interviews happen on Microsoft Teams."),
@@ -20,12 +20,18 @@ def test_a_plain_acknowledgement_is_not_an_interview_nor_a_refusal(subject, body
 
 
 @pytest.mark.parametrize("subject,body,expected", [
-    ("Konstantine - Acme has invited you to a video interview", "Thanks for your interest in Acme. We'd like to invite you to take a video interview.", "acceptation"),
+    ("Alex - Acme has invited you to a video interview", "Thanks for your interest in Acme. We'd like to invite you to take a video interview.", "acceptation"),
     ("Thank you for applying to Acme | Next step: assessment", "Please complete the assessment using this link.", "etape"),
     ("Time confirmed: First interview Acme", "Your interview is booked.", "etape"),
     ("Thank you for your application!", "After careful consideration, we regret to inform you that we chose someone else.", "refus"),
     ("Update on your application to Acme", "Unfortunately, we will not be moving forward with your application.", "refus"),
     ("Your application at Acme", "We have decided to move forward with other candidates.", "refus"),
+    ("Update on your application to Acme", "We have decided not to move forward with your application.", "refus"),
+    ("Your application to Acme", "After review we have decided not to progress with your application.", "refus"),
+    ("Your application to Acme", "We will move forward with another candidate. The position has now been filled.", "refus"),
+    ("Thank you for your application", "Thank you for your interest. Unfortunately, this position is no longer available.", "refus"),
+    ("Thank you for your application", "We received applications from many qualified candidates and unfortunately are going in a direction that better fits our needs.", "refus"),
+    ("Merci pour votre interet", "Votre candidature n'est pas retenue pour ce poste.", "refus"),
     ("Votre candidature", "Votre dossier n'a pas ete retenu au regard des autres profils.", "refus"),
 ])
 def test_real_news_stays_real_news(subject, body, expected):
@@ -40,3 +46,16 @@ def test_a_software_application_is_not_a_job_application():
 def test_a_position_named_only_in_the_body_is_still_a_job_mail():
     body = "Hello, thank you for taking the time to apply for the Growth Associate position at Homa! Your application is now in our hands."
     assert classify("Workable <x@workablemail.com>", "Growth Associate - Gaming - Homa", body, False)["type"] == "candidature"
+
+
+def test_a_refusal_sent_through_a_mailing_tool_still_counts():
+    assert classify("Acme <jobs@acme.com>", "Your application to Acme", "We have decided not to move forward with your application.", bulk=True)["type"] == "refus"
+
+
+def test_a_person_can_refuse_without_saying_application():
+    assert classify("Pat Doe <pat@acme.io>", "Re: Acme / Alex presentation", "Thanks for the time. We have decided not to proceed with an offer.")["type"] == "refus"
+
+
+def test_a_refusal_quoted_in_a_reply_is_not_a_refusal():
+    body = "Thanks, see you Tuesday!\n\nOn Mon, Nov 2, 2026 at 3 PM Pat <pat@acme.com> wrote:\nWe regret to inform you that we chose someone else."
+    assert classify("Pat <pat@acme.com>", "Re: Your application to Acme", body)["type"] != "refus"

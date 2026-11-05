@@ -8,7 +8,7 @@ import time
 import uuid
 from datetime import datetime
 
-from . import plus
+from . import meetings, plus
 from .optional import tvremote
 from .core import db, log, norm, scrub
 from . import catalog, chatlog, commands, google, guard, life, linkedin, llm, mail, mailindex, media, monitor, music, pagewatch, reminders, sound, system_tools, television, web
@@ -100,8 +100,11 @@ def run_tool(chat_id, name, args, links):
                 if no:
                     return no
             if refus:
-                return mail.mail_refus(args.get("days") or 365, args.get("limit") or 150, args.get("dry_run") is True)
+                return mailindex.trash_refusals(args.get("dry_run") is True)
             return mail.mail_clean(args.get("days", 30), args.get("limit", 100), args.get("dry_run") is True)
+        if name == "rdv_a_venir":
+            links.append("(email lu)")
+            return meetings.tool(args)
         if name == "mail_index":
             links.append("(email lu)")
             return mailindex.tool(args)
@@ -114,7 +117,9 @@ def run_tool(chat_id, name, args, links):
         if name in ("mail_list", "mail_read", "mail_search"):
             links.append("(email lu)")          # contenu externe : marque la conversation comme "sensible"
             if name == "mail_search":
-                return mail.mail_search(str(args.get("query", "")), args.get("days", 365))
+                query, days = str(args.get("query", "")), args.get("days", 365)
+                local = mailindex.search(query, days=days, limit=12)                    # instant; asking the mail server takes about 10 seconds
+                return local if local["resultats"] and not local.get("note") else mail.mail_search(query, days)
             if name == "mail_list":
                 q = str(args.get("query", ""))
                 return mail.mail_list(q, args.get("unread_only", not q) is not False, int(args.get("limit", 8) or 8), args.get("important_only") is True)

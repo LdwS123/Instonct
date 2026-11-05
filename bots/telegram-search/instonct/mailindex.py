@@ -14,7 +14,7 @@ from contextlib import closing
 from datetime import datetime
 from email.utils import parseaddr, parsedate_to_datetime
 
-from . import localdb, mail, mailtriage
+from . import localdb, mail, mailslot, mailtriage
 from .core import db, log, norm, scrub
 
 PATH = os.environ.get("MAIL_INDEX_PATH") or os.path.join(os.path.expanduser("~"), "bots", "mail_index.sqlite")
@@ -22,7 +22,7 @@ BATCH = 100                 # mails per pass
 FETCH_BYTES = 32768         # start of each mail: enough for the text, never the attachments
 BODY_CHARS = 6000
 BUSY_PAUSE = 20             # seconds between passes while catching up
-IDLE_PAUSE = 300            # seconds between passes once everything is indexed
+IDLE_PAUSE = 120            # seconds between passes once everything is indexed
 STATUS = "mailindex:status"
 
 SCHEMA = """
@@ -172,11 +172,15 @@ _NEWS_TYPES = ("acceptation", "refus", "etape")    # a real step: the model must
 
 
 def _row(r, extrait=None):
-    out = {"id": f"{r['acc']}:{r['uid']}@{r['folder']}", "date": _when(r["date"]), "de": (r["de"] or "")[:80], "sujet": (r["sujet"] or "")[:120], "type": r["type"]}
+    out = {"id": f"{r['acc']}:{r['uid']}@{r['folder']}", "envoye_le": _when(r["date"]), "de": (r["de"] or "")[:80], "sujet": (r["sujet"] or "")[:120], "type": r["type"]}
     if r["type"] in _NEWS_TYPES and r["body"]:
         out["extrait"] = re.sub(r"\s+", " ", r["body"])[:600]
     elif extrait:
         out["extrait"] = re.sub(r"\s+", " ", extrait)[:220]
+    if r["type"] in ("etape", "rdv"):
+        slot = mailslot.parse(r["sujet"], r["body"], r["date"])
+        if slot:
+            out["rendez_vous"] = mailslot.label(slot["debut"], slot["fin"])
     return out
 
 
@@ -342,10 +346,39 @@ def waiting_for_reply(days=14, min_age_hours=48):
         if (mine(r["de"]) or r["mid"] in answered or mailtriage.NOREPLY.search(addr) or mailtriage.NOISE_SENDER.search(addr)
                 or _EVENT_SENDER.search(addr) or _NO_ANSWER.search(r["sujet"] or "")):
             continue
-        if r["type"] == "personne" and "?" not in (r["body"] or "")[:1500]:
+        if r["type"] == "personne" and "?" not in mailtriage.own_words(r["body"] or "")[:1500]:
             continue
         out.append(r)
     return out
+
+
+def trash_refusals(dry_run=False):
+    """Every refusal in the whole mailbox, read from the index: no search words and no limit, so the answer is true. Interviews and offers are never in it."""
+    try:
+        sync_once()                                     # counts what just arrived, forgets what is already gone
+    except Exception as e:
+        log.warning("index pas a jour avant les refus : %s", scrub(e))
+    with _db() as con:
+        total = con.execute("SELECT COUNT(*) FROM mails").fetchone()[0]
+        rows = con.execute("SELECT * FROM mails WHERE type='refus' ORDER BY date DESC").fetchall()
+    own = _own_addresses()
+    found = [r for r in _unique(rows) if _same_mailbox(parseaddr(r["de"])[1]) not in own]
+    res = {"mails_regardes": total, "refus_trouves": len(found), "liste": [f"{_when(r['date'])[:10]} {r['de'].split('<')[0].strip()[:30]} : {(r['sujet'] or '')[:55]}" for r in found[:40]]}
+    if dry_run or not found:
+        return res
+    ids, done, errs = [f"{r['acc']}:{r['uid']}@{r['folder']}" for r in found], 0, []
+    for i in range(0, len(ids), 30):
+        out = mail.mail_manage(ids[i:i + 30], "delete")
+        done += out.get("fait", 0)
+        errs += out.get("erreurs", [])
+    res |= {"mis_a_la_corbeille": done, "note": "recuperables 30 jours dans la corbeille ; les entretiens et acceptations n'ont pas ete touches"}
+    if errs:
+        res["erreurs"] = errs[:3]
+    try:
+        sync_once()
+    except Exception as e:
+        log.warning("index pas a jour apres les refus : %s", scrub(e))
+    return res
 
 
 def tool(args):

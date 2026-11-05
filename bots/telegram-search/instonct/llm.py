@@ -75,6 +75,18 @@ def call_gemini(body):
     return resp
 
 
+# Some models end with a word from their own checklist, sometimes stuck to the last sentence.
+_FILLER = re.compile(r"(?:(?<=[.!?])\s*(?:check|all set|done)\b[.!]?)+\s*$", re.I)
+_GLUED_END = re.compile(r"(?:(?<=[.!?])(?:c.est note|bonne chance|voila)[.!]?)+\s*$", re.I)
+_GLUED = re.compile(r"([a-zà-ÿ]{2})\.([A-ZÀ-Ý][a-zà-ÿ'’])")
+
+
+def false_claim(answer, ran):
+    """True if the answer says something was done by a tool that did not run."""
+    said = norm(answer or "")
+    return any(rx.search(said) and not (tools & ran) for rx, tools in CLAIMS)
+
+
 def clean_answer(text):
     """Enleve les restes de reflexion du modele (<think>...</think>, ou texte avant un </think> orphelin)."""
     text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
@@ -82,7 +94,9 @@ def clean_answer(text):
         text = text.rsplit("</think>", 1)[1]
     text = text.replace("<think>", "").strip()
     restart = text.find(text[:6], 6) if len(text) > 40 else -1      # some models write a draft, then start the same answer again right after its last full stop
-    return text[restart:] if restart > 0 and text[restart - 1] in ".!?" else text
+    text = text[restart:] if restart > 0 and text[restart - 1] in ".!?" else text
+    text = _FILLER.sub("", _GLUED_END.sub("", text)).rstrip()
+    return " ".join(_GLUED.sub(r"\1. \2", w) if "://" not in w and "@" not in w else w for w in re.split(r"(?<=\S) (?=\S)", text)) if _GLUED.search(text) else text
 
 
 HARD = re.compile(r"\b(analys|compar|strateg|plan|expliqu|pourquoi|comment faire|conseil|decid|choisir|choix|resum|redige|ecris|code|script|probleme|bug|organis|budget|idee)", re.I)
@@ -141,6 +155,12 @@ NUDGE = ("[Systeme] Avant de dire que tu ne peux pas : cherche une voie avec tes
          "write_file) et essaie vraiment. Si c'est reellement impossible (materiel absent, ou ca demande la validation de l'utilisateur), "
          "explique precisement pourquoi en une phrase et propose la meilleure alternative. Les validations Oui/Non restent obligatoires.")
 MAX_STEPS = 16
+# An answer that announces an action needs that action to have run in this turn.
+CLAIMS = ((re.compile(r"rappel (est |a ete |bien )?(programm|prevu|cree|enregistr)|voici le rappel|je te rappellerai", re.I), {"set_reminder", "schedule_task", "todo_add", "routine_save"}),
+          (re.compile(r"(mis|mise|mises) a la corbeille|j.ai (supprime|efface|archive)|(ont|a) ete (supprime|efface|archive)", re.I), {"mail_manage", "mail_clean", "calendar_delete", "run_command", "todo_done"}),
+          (re.compile(r"j.ai envoye|(mail|message) (est |a ete |bien )?envoye", re.I), {"mail_send", "mail_reply", "run_command", "http_request"}))
+FALSE_CLAIM = ("[Systeme] Tu viens d'annoncer une action alors que l'outil n'a pas ete appele dans ce tour. Appelle l'outil maintenant, "
+               "ou corrige ta reponse et dis franchement que ce n'est pas fait.")
 
 
 _LEAK = re.compile(r"<\|(?:channel|call|start|end|message|return)\|>")

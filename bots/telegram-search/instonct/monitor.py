@@ -11,8 +11,8 @@ from datetime import timedelta
 from . import mailtriage
 from . import plus
 from . import screen
-from .core import db, log, scrub, send
-from . import commands, google, life, llm, mail, mailindex, memlearn, pagewatch
+from .core import db, log, norm, scrub, send
+from . import commands, google, life, llm, mail, mailindex, meetings, memlearn, pagewatch
 
 # ---------------------------------------------------------------- veille : nouveaux mails et alertes du Mac mini
 _NOISE = re.compile(r"no-?reply|newsletter|notification|mailer-daemon|marketing|promo|noreply|updates@|news@", re.I)
@@ -124,23 +124,15 @@ def check_screen(chat_id):
 
 
 def check_plus(chat_id):
-    """Automatismes sans IA : rendez-vous dans 30 min (avec lien Meet), relances, anniversaires, menage de nuit, bilan du soir."""
+    """Automatismes sans IA : rendez-vous dans 30 min, agenda et mails (avec le lien), relances, anniversaires, menage de nuit, bilan du soir."""
     now = datetime.now()
     for msg in plus.due(db, now):
         send(chat_id, msg)
     if plus.setting(db, "rappel_rdv"):
-        from . import gcal
-        if gcal.connected() and gcal.token_ok():
-            for ev in gcal.list_events(1):
-                try:
-                    start = datetime.strptime(ev["debut"], "%Y-%m-%d %H:%M")
-                except ValueError:
-                    continue                                                    # evenement sur toute la journee
-                mins = (start - now).total_seconds() / 60
-                if 20 <= mins <= 40 and db.set(f"rdv_ping:{ev['id']}", 1, nx=True, ex=86400):
-                    link = ev.get("meet") or next(iter(re.findall(r"https?://\S+", ev.get("lieu", ""))), "")
-                    send(chat_id, f"Dans {int(mins)} minutes : {ev['titre']} a {start:%H:%M}." + (f"\nLien : {link}" if link else "")
-                         + (f"\nLieu : {ev['lieu']}" if ev.get("lieu") and not link else ""))
+        for m in meetings.upcoming(1, now)[0]:
+            mins = (m["debut"] - now).total_seconds() / 60
+            if 5 <= mins <= 40 and not m["event"] and db.set(f"rdv_ping:{m['debut']:%Y%m%d%H%M}:{norm(m['titre'])[:30]}", 1, nx=True, ex=86400):
+                send(chat_id, meetings.reminder(m, mins))
     if now.hour == 3 and plus.setting(db, "menage_auto") and db.set(f"menage_auto:{now:%Y-%m-%d}", 1, nx=True, ex=86400):
         res = mail.mail_clean(7, 200, False)
         n = res.get("mis_a_la_corbeille", 0) if isinstance(res, dict) else 0

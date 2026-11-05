@@ -12,6 +12,8 @@ TOOLS = [{"functionDeclarations": [
     {"name": "say_aloud", "description": "Fait PARLER A VOIX HAUTE le Mac mini ou la tele (selon la sortie choisie). UNIQUEMENT si l'utilisateur demande "
      "explicitement 'dis ...', 'annonce ...' ou 'fais dire ...' sur le haut-parleur. Jamais pour repondre a une conversation normale. Jamais run_command pour parler.",
      "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+    {"name": "rdv_a_venir", "description": "Prochains entretiens et rendez-vous, avec l'heure exacte lue dans les mails et l'agenda (le dernier mail gagne). A utiliser pour toute question sur l'heure d'un entretien.",
+     "parameters": {"type": "object", "properties": {"entreprise": {"type": "string"}, "days": {"type": "integer"}}}},
     {"name": "calendar_list", "description": "Liste les evenements de l'agenda Google (days = nombre de jours, start = AAAA-MM-JJ, defaut aujourd'hui).",
      "parameters": {"type": "object", "properties": {"days": {"type": "integer"}, "start": {"type": "string"}}}},
     {"name": "calendar_create", "description": "Cree un evenement dans l'agenda Google. start = AAAA-MM-JJ HH:MM (heure de Paris). meet=true ajoute un lien Google Meet. "
@@ -290,6 +292,7 @@ TOOL_GROUPS = [
     (r"mail|ecri|envoi|message|boite|inbox|repond|gmail|courrier|entretien|candidature|recrut|facture|colis|invitation|retrouve|cherche|efface|supprim|archiv|nettoie|menage|poubelle|spam|corbeille|refus|restaure|remets|pub\b|pubs", {"mail_index", "mail_list", "mail_read", "mail_send", "mail_search", "mail_manage", "mail_clean", "mail_reply", "mail_undo"}),
     (r"agenda|calendrier|rendez|rdv|reunion|meet|evenement|planning|dispo|semaine|demain|aujourd|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|calendar",
      {"calendar_list", "calendar_create", "calendar_delete"}),
+    (r"entretien|interview|rendez|rdv|reunion|visio|\bcall\b|agenda|calendrier|planning|demain|aujourd|prepar|recrut|heure", {"rdv_a_venir"}),
     (r"image|photo|dessin|logo|illustr|picture|affiche|wallpaper|fond d|visuel|montre", {"generate_image", "find_image", "send_photo"}),
     (r"aime|adore|favori|garde|sauvegarde|top\b|kiff", {"favorite_add", "favorite_list", "favorite_remove"}),
     (r"surveill|previens|alerte|prix|stock|disponib|change|annonce", {"page_watch"}),

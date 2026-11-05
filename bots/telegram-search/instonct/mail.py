@@ -7,9 +7,10 @@ import unicodedata
 import uuid
 from datetime import datetime
 from datetime import timedelta
+from email.utils import parsedate_to_datetime
 import time
 
-from . import mailtriage
+from . import mailslot, mailtriage
 from .core import db, log, scrub
 from . import callbacks
 
@@ -93,7 +94,7 @@ def mail_list(query, unread_only, limit, important_only=False, raw=False):
                     t = _tri(de, sujet, h)
                     if important_only and t["niveau"] != "important":
                         continue
-                    e = {"id": f"{acc['n']}:{u.decode()}", "boite": acc["user"], "de": de, "sujet": sujet, "date": (h["Date"] or "")[:25],
+                    e = {"id": f"{acc['n']}:{u.decode()}", "boite": acc["user"], "de": de, "sujet": sujet, "envoye_le": (h["Date"] or "")[:25],
                          "tri": t["label"] if t["niveau"] == "important" else "PUB"}
                     if raw:
                         e["_tri"], e["_bulk"] = t, _bulk(h)
@@ -194,7 +195,7 @@ def mail_search(query, days=365):
                             if key not in found:
                                 found[key] = (when, {"id": f"{acc['n']}:{u.decode()}" + ("" if folder == "INBOX" else "@" + folder),
                                                      "boite": acc["user"], "dossier": folder, "de": _mail_dec(h["From"])[:80],
-                                                     "sujet": _mail_dec(h["Subject"])[:120], "date": str(h["Date"] or "")[:25],
+                                                     "sujet": _mail_dec(h["Subject"])[:120], "envoye_le": str(h["Date"] or "")[:25],
                                                      "tri": (lambda t: t["label"] if t["niveau"] == "important" else "PUB")(
                                                          _tri(_mail_dec(h["From"])[:80], _mail_dec(h["Subject"])[:120], h))})
                 finally:
@@ -231,6 +232,16 @@ def _mail_links(raw):
     return (meet + [u for u in urls if u not in meet][:4])[:6]
 
 
+def _slot_words(subject, body, sent):
+    """The meeting time written in the mail, in words. Never the date it was sent."""
+    try:
+        when = parsedate_to_datetime(sent).timestamp()
+    except (TypeError, ValueError):
+        when = 0
+    slot = mailslot.parse(subject, body, when)
+    return mailslot.label(slot["debut"], slot["fin"]) if slot else "aucune heure de rendez-vous dans ce mail"
+
+
 def mail_read(uid):
     import email
     n, _, rest = (uid if ":" in uid else "1:" + uid).partition(":")
@@ -264,7 +275,8 @@ def mail_read(uid):
             de, sujet = _mail_dec(m["From"])[:80], _mail_dec(m["Subject"])[:120]
             t = _tri(de, sujet, m, body + (" invitation .ics" if any(f.lower().endswith(".ics") for f in files) else ""))
             return {"de": de, "a": _mail_dec(m["To"])[:80], "sujet": sujet,
-                    "date": (m["Date"] or "")[:31], "pieces_jointes": files or "aucune",
+                    "envoye_le": (m["Date"] or "")[:31], "pieces_jointes": files or "aucune",
+                    "rendez_vous": _slot_words(sujet, text, m["Date"]),
                     "tri": f"{t['niveau'].upper()} - {t['label']} ({t['raison']})",
                     "liens": liens or "aucun", "texte": body[:4000]}
         finally:
@@ -550,70 +562,6 @@ def _body_text(m):
                 if text.strip():
                     return re.sub(r"\s+", " ", text).strip()
     return ""
-
-
-def mail_refus(days=365, limit=150, dry_run=False):
-    """Trouve les REFUS de candidature (en lisant le texte des mails, dans tous les dossiers) et les met a la corbeille. Jamais un entretien ni une acceptation."""
-    import email
-    try:
-        days, limit = max(1, int(days or 365)), max(1, min(int(limit or 150), 300))
-    except (TypeError, ValueError):
-        days, limit = 365, 150
-    since = datetime.now() - timedelta(days=days)
-    words = ["candidature", "application", "recrutement", "candidat"]
-    ids, shown, errs, examined = [], [], [], 0
-    for acc in _mail_accounts():
-        try:
-            gmail = "gmail" in acc["host"] or "google" in acc["host"]
-            c = _mail_open(acc["n"])
-            try:
-                for folder in _mail_folders(c, gmail):
-                    typ, _ = c.select(_imap_q(folder), readonly=True)
-                    if typ != "OK":
-                        continue
-                    crit = ["SINCE", f"{since.day:02d}-{_MONTHS[since.month - 1]}-{since.year}"]
-                    if gmail:
-                        crit += ["X-GM-RAW", '"(' + " OR ".join(words) + ')"']
-                    else:
-                        chain = [f'TEXT "{w}"' for w in words]
-                        expr = chain[-1]
-                        for part in reversed(chain[:-1]):
-                            expr = f"OR {part} {expr}"
-                        crit += re.findall(r'"[^"]*"|\S+', expr)
-                    typ, data = c.uid("search", None, *crit)
-                    if typ != "OK":
-                        continue
-                    for u in data[0].split()[-limit:]:
-                        typ, d = c.uid("fetch", u, "(BODY.PEEK[])")
-                        if typ != "OK" or not d or not d[0] or not isinstance(d[0], tuple):
-                            continue
-                        m = email.message_from_bytes(d[0][1])
-                        de, sujet = _mail_dec(m["From"])[:80], _mail_dec(m["Subject"])[:100]
-                        examined += 1
-                        t = _tri(de, sujet, m, _body_text(m)[:3000])
-                        if t["type"] == "refus":
-                            ids.append(f"{acc['n']}:{u.decode()}" + ("" if folder == "INBOX" else "@" + folder))
-                            if len(shown) < 8:
-                                shown.append(f"{de.split('<')[0].strip()[:30]} : {sujet[:55]}")
-            finally:
-                try:
-                    c.logout()
-                except Exception:
-                    pass
-        except Exception as e:
-            errs.append(f"{acc['user']} : {scrub(e)[:100]}")
-    res = {"refus_trouves": len(ids), "mails_lus": examined, "exemples": shown or "aucun refus trouve"}
-    if not dry_run and ids:
-        done = 0
-        for i in range(0, len(ids), 30):
-            r = mail_manage(ids[i:i + 30], "delete")
-            done += r.get("fait", 0)
-            errs += r.get("erreurs", [])
-        res["mis_a_la_corbeille"] = done
-        res["note"] = "recuperables dans la corbeille ; les entretiens et acceptations n'ont pas ete touches"
-    if errs:
-        res["erreurs"] = errs[:3]
-    return res
 
 
 def mail_reply_request(chat_id, args):
