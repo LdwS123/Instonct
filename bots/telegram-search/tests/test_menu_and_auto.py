@@ -69,8 +69,10 @@ def test_each_category_page_and_its_buttons_are_valid():
     assert {d for _, d in flat} == {f"menu:{c[0]}" for c in rubriques.CATEGORIES}
 
 
-def test_help_lists_each_command_once():
-    lines = [x for x in rubriques.aide_text().splitlines() if x.startswith("/")]
+def test_help_is_short_and_the_full_list_names_each_command_once():
+    short = rubriques.aide_text()
+    assert len(short) < 1500 and "/menu" in short and all(c[2] in short for c in rubriques.CATEGORIES)
+    lines = [x for x in rubriques.full_text().splitlines() if x.startswith("/")]
     names = [x.split(" ")[0] for x in lines]
     assert len(names) == len(set(names)) and "/auto" in names and "/silence" in names
 

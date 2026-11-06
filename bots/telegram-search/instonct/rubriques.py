@@ -139,6 +139,13 @@ def page(key):
 
 
 def aide_text():
+    """/aide and /start: short. One line per category; the details are one tap away in /menu."""
+    lines = [INTRO, ""] + [f"{icon} {title} : {summary}" for _, icon, title, summary, *_ in CATEGORIES]
+    return "\n".join(lines + ["", "Tape /menu : un bouton par catégorie, avec les commandes et des phrases à dire."])
+
+
+def full_text():
+    """Every command, by category (WhatsApp has no buttons)."""
     parts, shown = [INTRO], set()
     for _, icon, title, _, cmds, _, _ in CATEGORIES:
         fresh = [(n, d) for n, d in cmds if n not in shown]          # a command listed in two categories is written once

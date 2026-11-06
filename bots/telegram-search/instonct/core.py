@@ -2,6 +2,8 @@
 
 import logging
 import os
+import socket
+import time
 import unicodedata
 
 import redis
@@ -28,17 +30,36 @@ def scrub(e):
     return s
 
 
+def _keepalive_options():
+    """TCP keep-alive: a connection that the router silently dropped is noticed in about 30 s instead of hanging for a minute."""
+    opts = [(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1), (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)]
+    for name, value in (("TCP_KEEPIDLE", 15), ("TCP_KEEPINTVL", 5), ("TCP_KEEPCNT", 3)):
+        if hasattr(socket, name):
+            opts.append((socket.IPPROTO_TCP, getattr(socket, name), value))
+    return opts
+
+
 def _session():
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
+
+    class KeepAliveAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            kwargs["socket_options"] = _keepalive_options()
+            super().init_poolmanager(*args, **kwargs)
     # une connexion gardee ouverte peut avoir ete fermee par le serveur entre deux messages ("Remote end closed connection") : on reessaie sans bruit
     retry = Retry(total=2, connect=2, read=2, status=0, backoff_factor=0.4, allowed_methods=None, raise_on_status=False)
     sess = requests.Session()
-    sess.mount("https://", HTTPAdapter(pool_connections=4, pool_maxsize=24, max_retries=retry))
+    sess.mount("https://", KeepAliveAdapter(pool_connections=4, pool_maxsize=24, max_retries=retry))
     return sess
 
 
-NET = _session()        # connexions gardees ouvertes vers Telegram et Groq : plus de poignee de main a chaque appel
+NET = _session()        # connexions gardees ouvertes vers Groq et les autres services : plus de poignee de main a chaque appel
+TG_NET = _session()     # Telegram a part : l'attente longue (getUpdates) d'un cote, les envois de l'autre
+POLL_NET = _session()
+IDLE_RESET = 20         # secondes sans envoi : on repart d'une connexion neuve (une connexion dormante a pu mourir sans bruit)
+UPLOADS = ("sendVoice", "sendAudio", "sendDocument", "sendPhoto", "sendVideo")
+_last_send = [0.0]
 
 
 def is_wa(chat_id):
@@ -53,7 +74,17 @@ def wa_to(chat_id):
 def tg(method, **params):
     if is_wa(params.get("chat_id")):               # Telegram-only call (typing, buttons editing...) : nothing to do on WhatsApp
         return {}
-    resp = NET.post(f"{TG}/{method}", json=params, timeout=70)
+    if method == "getUpdates":
+        return POLL_NET.post(f"{TG}/{method}", json=params, timeout=70).json()
+    timeout = (5, 90 if method in UPLOADS else 25)
+    if time.time() - _last_send[0] > IDLE_RESET:
+        TG_NET.close()                                  # cheap (about 0.1 s) next to a reply that hangs for a minute
+    try:
+        resp = TG_NET.post(f"{TG}/{method}", json=params, timeout=timeout)
+    except (requests.ConnectionError, requests.Timeout):
+        TG_NET.close()                                  # the kept-alive connection was dead: once more on a fresh one
+        resp = TG_NET.post(f"{TG}/{method}", json=params, timeout=timeout)
+    _last_send[0] = time.time()
     return resp.json()
 
 

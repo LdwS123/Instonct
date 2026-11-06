@@ -1,5 +1,7 @@
 """Security rules: what a hostile web page / email / calendar invite must NOT be able to make the bot do."""
 import json
+import socket
+import time
 
 import pytest
 
@@ -119,3 +121,39 @@ def test_network_session_retries_stale_connections():
     from instonct.core import NET
     r = NET.get_adapter("https://api.telegram.org").max_retries
     assert r.total == 2 and r.read == 2
+
+
+def test_telegram_calls_do_not_hang_on_a_dead_connection(monkeypatch):
+    """A kept-alive connection can die silently: sends have a short timeout, restart on a fresh connection, and polling has its own session."""
+    import requests
+    from instonct.core import _keepalive_options, _last_send, tg
+    seen = []
+
+    class Fake:
+        def __init__(self, name, fail_first=False):
+            self.name, self.fail, self.closed = name, fail_first, 0
+
+        def post(self, url, json=None, timeout=None):
+            seen.append((self.name, url.rsplit("/", 1)[-1], timeout))
+            if self.fail:
+                self.fail = False
+                raise requests.ConnectionError("dead")
+            return type("R", (), {"json": lambda self: {"ok": True}})()
+
+        def close(self):
+            self.closed += 1
+
+    tg_net, poll = Fake("send", fail_first=True), Fake("poll")
+    monkeypatch.setattr("instonct.core.TG_NET", tg_net)
+    monkeypatch.setattr("instonct.core.POLL_NET", poll)
+    _last_send[0] = time.time()
+    assert tg("sendMessage", chat_id=1, text="x") == {"ok": True}
+    assert [s[:2] for s in seen] == [("send", "sendMessage"), ("send", "sendMessage")] and tg_net.closed == 1     # retried once, fresh
+    assert seen[0][2] == (5, 25) and tg("sendVoice", chat_id=1)["ok"] and seen[-1][2] == (5, 90)
+    tg("getUpdates", timeout=50)
+    assert seen[-1] == ("poll", "getUpdates", 70)
+    _last_send[0] = time.time() - 60                                          # idle for a minute: start from a fresh connection
+    before = tg_net.closed
+    tg("sendMessage", chat_id=1, text="y")
+    assert tg_net.closed == before + 1
+    assert any(o[1] == socket.SO_KEEPALIVE for o in _keepalive_options())

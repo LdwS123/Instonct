@@ -63,6 +63,7 @@ def handle(msg):
         handle_voice(chat_id, voice)
     elif cmd in ("/start", "/aide", "/help"):
         send(chat_id, rubriques.aide_text())
+        send_menu(chat_id)
     elif cmd == "/menu":
         send_menu(chat_id)
     elif cmd == "/panneau":
@@ -242,7 +243,7 @@ def handle(msg):
 def send_menu(chat_id):
     """/menu : the categories as buttons (plain text on WhatsApp, which has no inline keyboard here)."""
     if is_wa(chat_id):
-        send(chat_id, rubriques.aide_text())
+        send(chat_id, rubriques.full_text())
         return
     tg("sendMessage", chat_id=chat_id, text=rubriques.home_text(), reply_markup=television._markup(rubriques.menu_rows()))
 
