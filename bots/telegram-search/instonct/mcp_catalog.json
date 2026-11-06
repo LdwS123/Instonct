@@ -1,0 +1,3016 @@
+{
+"source": "github.com/docker/mcp-registry (2026-11-06)",
+"servers": [
+{
+"id": "arxiv-mcp-server",
+"nom": "arxiv-mcp-server",
+"image": "mcp/arxiv-mcp-server",
+"etat": "ok",
+"desc": "The ArXiv MCP Server provides a comprehensive bridge between AI assistants and arXiv's research repository through the Model Context Protocol (MCP). …",
+"sert_a": "Chercher et lire des articles arXiv",
+"mots": "arxiv article scientifique preprint",
+"sur": true,
+"env": {
+"ARXIV_STORAGE_PATH": "/app/papers"
+},
+"volumes": [
+"mcp-arxiv:/app/papers"
+],
+"verifie": {
+"ok": true,
+"outils": 4
+},
+"digest": "mcp/arxiv-mcp-server@sha256:6dc6bba6dfed97f4ad6eb8d23a5c98ef5b7fa6184937d54b2d675801cd9dd29e",
+"outils": [
+{
+"nom": "search_papers",
+"sert_a": "Search for papers on arXiv with advanced filtering and query optimization.",
+"args": {
+"query": "string",
+"max_results": "integer",
+"date_from": "string",
+"date_to": "string",
+"categories": "liste de string",
+"sort_by": "relevance|date"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "download_paper",
+"sert_a": "Download and convert an arXiv paper to readable markdown format for analysis and reading.",
+"args": {
+"paper_id": "string",
+"check_status": "boolean"
+},
+"requis": [
+"paper_id"
+]
+},
+{
+"nom": "list_papers",
+"sert_a": "List all previously downloaded and converted papers that are available in local storage for immediate reading and analysis.",
+"args": {},
+"requis": []
+},
+{
+"nom": "read_paper",
+"sert_a": "Read the full text content of a previously downloaded and converted research paper in clean markdown format.",
+"args": {
+"paper_id": "string"
+},
+"requis": [
+"paper_id"
+]
+}
+]
+},
+{
+"id": "duckduckgo",
+"nom": "duckduckgo",
+"image": "mcp/duckduckgo",
+"etat": "ok",
+"desc": "Community-maintained server for DuckDuckGo search. Not published by or affiliated with DuckDuckGo.",
+"sert_a": "Recherche web avec DuckDuckGo",
+"mots": "duckduckgo recherche web internet",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 2
+},
+"digest": "mcp/duckduckgo@sha256:5617c4c60f48f47556c0735de7a73f6abd731c132c65ec8c720b511819c9f88f",
+"outils": [
+{
+"nom": "search",
+"sert_a": "Search the web using DuckDuckGo.",
+"args": {
+"query": "string",
+"max_results": "integer",
+"region": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "fetch_content",
+"sert_a": "Fetch and extract the main text content from a webpage.",
+"args": {
+"url": "string",
+"start_index": "integer",
+"max_length": "integer",
+"backend": "string"
+},
+"requis": [
+"url"
+]
+}
+]
+},
+{
+"id": "effect-mcp",
+"nom": "effect-mcp",
+"image": "mcp/effect-mcp",
+"etat": "ok",
+"desc": "Tools and resources for writing Effect code in Typescript.",
+"sert_a": "Documentation de la bibliotheque TypeScript Effect",
+"mots": "effect typescript documentation bibliotheque",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 2
+},
+"digest": "mcp/effect-mcp@sha256:a0e077abc89044c8ac55bfd498d5dcb69ed9c3de93e3d2750050b36495df5b10",
+"outils": [
+{
+"nom": "effect_docs_search",
+"sert_a": "Searches the Effect documentation.",
+"args": {
+"query": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "get_effect_doc",
+"sert_a": "Get the Effect documentation for a documentId.",
+"args": {
+"documentId": "number",
+"page": "number"
+},
+"requis": [
+"documentId"
+]
+}
+]
+},
+{
+"id": "fetch",
+"nom": "fetch",
+"image": "mcp/fetch",
+"etat": "ok",
+"desc": "Fetches a URL from the internet and extracts its contents as markdown",
+"sert_a": "Lit une page web et la rend en texte propre (markdown)",
+"mots": "page web url lire site article contenu markdown",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 1
+},
+"digest": "mcp/fetch@sha256:1a7a0996a565a0b8ca5c41b42830d4e5f334d33f851596bbd9debb2beedb22d3",
+"outils": [
+{
+"nom": "fetch",
+"sert_a": "Fetches a URL from the internet and optionally extracts its contents as markdown.",
+"args": {
+"url": "string",
+"max_length": "integer",
+"start_index": "integer",
+"raw": "boolean"
+},
+"requis": [
+"url"
+]
+}
+]
+},
+{
+"id": "hackernews-mcp",
+"nom": "mcp-hackernews",
+"image": "mcp/hackernews-mcp",
+"etat": "ok",
+"desc": "A Model Context Protocol (MCP) server that provides access to Hacker News stories, comments, and user data, with support for search and content retri…",
+"sert_a": "Hacker News : histoires, commentaires, utilisateurs",
+"mots": "hacker news hackernews actu tech startup",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 4
+},
+"digest": "mcp/hackernews-mcp@sha256:2e5c5cc89490848e1b5c0dc677f0dd5076dd09984be699e230cad387fb5f582f",
+"outils": [
+{
+"nom": "get_stories",
+"sert_a": "Get stories from Hacker News.",
+"args": {
+"story_type": "string",
+"num_stories": "integer"
+},
+"requis": []
+},
+{
+"nom": "get_story_info",
+"sert_a": "Get detailed story info from Hacker News, including the comments",
+"args": {
+"story_id": "integer"
+},
+"requis": [
+"story_id"
+]
+},
+{
+"nom": "search_stories",
+"sert_a": "Search stories from Hacker News.",
+"args": {
+"query": "string",
+"search_by_date": "boolean",
+"num_results": "integer"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "get_user_info",
+"sert_a": "Get user info from Hacker News, including the stories they've submitted",
+"args": {
+"user_name": "string",
+"num_stories": "integer"
+},
+"requis": [
+"user_name"
+]
+}
+]
+},
+{
+"id": "memory",
+"nom": "memory",
+"image": "mcp/memory",
+"etat": "ok",
+"desc": "Knowledge graph-based persistent memory system.",
+"sert_a": "Memoire en graphe : retenir des faits et leurs liens",
+"mots": "memoire graphe retenir entites relations connaissances",
+"sur": false,
+"volumes": [
+"mcp-memory:/app/dist"
+],
+"verifie": {
+"ok": true,
+"outils": 9
+},
+"digest": "mcp/memory@sha256:db0c2db07a44b6797eba7a832b1bda142ffc899588aae82c92780cbb2252407f",
+"outils": [
+{
+"nom": "create_entities",
+"sert_a": "Create multiple new entities in the knowledge graph",
+"args": {
+"entities": "liste de object"
+},
+"requis": [
+"entities"
+]
+},
+{
+"nom": "create_relations",
+"sert_a": "Create multiple new relations between entities in the knowledge graph.",
+"args": {
+"relations": "liste de object"
+},
+"requis": [
+"relations"
+]
+},
+{
+"nom": "add_observations",
+"sert_a": "Add new observations to existing entities in the knowledge graph",
+"args": {
+"observations": "liste de object"
+},
+"requis": [
+"observations"
+]
+},
+{
+"nom": "delete_entities",
+"sert_a": "Delete multiple entities and their associated relations from the knowledge graph",
+"args": {
+"entityNames": "liste de string"
+},
+"requis": [
+"entityNames"
+]
+},
+{
+"nom": "delete_observations",
+"sert_a": "Delete specific observations from entities in the knowledge graph",
+"args": {
+"deletions": "liste de object"
+},
+"requis": [
+"deletions"
+]
+},
+{
+"nom": "delete_relations",
+"sert_a": "Delete multiple relations from the knowledge graph",
+"args": {
+"relations": "liste de object"
+},
+"requis": [
+"relations"
+]
+},
+{
+"nom": "read_graph",
+"sert_a": "Read the entire knowledge graph",
+"args": {},
+"requis": []
+},
+{
+"nom": "search_nodes",
+"sert_a": "Search for nodes in the knowledge graph based on a query",
+"args": {
+"query": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "open_nodes",
+"sert_a": "Open specific nodes in the knowledge graph by their names",
+"args": {
+"names": "liste de string"
+},
+"requis": [
+"names"
+]
+}
+]
+},
+{
+"id": "minecraft-wiki",
+"nom": "minecraft-wiki",
+"image": "mcp/minecraft-wiki",
+"etat": "ok",
+"desc": "Minecraft Wiki",
+"sert_a": "Wiki Minecraft : recettes, objets, creatures",
+"mots": "minecraft craft recette objet wiki",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 9
+},
+"digest": "mcp/minecraft-wiki@sha256:b191b5c6725ba90954bd86956afd1555d44fd58a1984f9e96a7657e029ad57fd",
+"outils": [
+{
+"nom": "MinecraftWiki_searchWiki",
+"sert_a": "Search the Minecraft Wiki for a specific structure, entity, item or block.",
+"args": {
+"query": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "MinecraftWiki_getPageSummary",
+"sert_a": "Step 2 of the recommended workflow: After finding a page through search, use this to get both the page summary AND a list of all available …",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "MinecraftWiki_getSectionsInPage",
+"sert_a": "Retrieves an overview of all sections in the page.",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "MinecraftWiki_getPageSection",
+"sert_a": "Get a specific section from a Minecraft Wiki page.",
+"args": {
+"title": "string",
+"sectionIndex": "number"
+},
+"requis": [
+"title",
+"sectionIndex"
+]
+},
+{
+"nom": "MinecraftWiki_getPageContent",
+"sert_a": "Get the raw wikitext content of a specific Minecraft Wiki page.",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "MinecraftWiki_resolveRedirect",
+"sert_a": "Resolve a redirect and return the title of the target page.",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "MinecraftWiki_listCategoryMembers",
+"sert_a": "List all pages that are members of a specific category on the Minecraft Wiki.",
+"args": {
+"category": "string",
+"limit": "number"
+},
+"requis": [
+"category"
+]
+},
+{
+"nom": "MinecraftWiki_listAllCategories",
+"sert_a": "List all categories in the Minecraft Wiki.",
+"args": {
+"prefix": "string",
+"limit": "number"
+},
+"requis": []
+},
+{
+"nom": "MinecraftWiki_getCategoriesForPage",
+"sert_a": "Get categories associated with a specific page.",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+}
+]
+},
+{
+"id": "npm-sentinel",
+"nom": "npm-sentinel",
+"image": "mcp/npm-sentinel",
+"etat": "ok",
+"desc": "MCP server that enables intelligent NPM package analysis powered by AI.",
+"sert_a": "Analyse de paquets npm : versions, securite, popularite",
+"mots": "npm paquet package javascript dependances securite",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 19
+},
+"digest": "mcp/npm-sentinel@sha256:d8e4bbc7dd5c163fb8abab3f36062a36a02bfd200cae199a9e2392bf4c9198ab",
+"outils": [
+{
+"nom": "npmVersions",
+"sert_a": "Get all available versions of an NPM package",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmLatest",
+"sert_a": "Get the latest version and changelog of an NPM package",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmDeps",
+"sert_a": "Analyze dependencies and devDependencies of an NPM package",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmSize",
+"sert_a": "Get package size information including dependencies and bundle size",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmVulnerabilities",
+"sert_a": "Check for known vulnerabilities in packages",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmCompare",
+"sert_a": "Compare multiple NPM packages based on various metrics",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmScore",
+"sert_a": "Get consolidated package score based on quality, maintenance, and popularity metrics",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmPackageReadme",
+"sert_a": "Get the README content for NPM packages",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmSearch",
+"sert_a": "Search for NPM packages with optional limit",
+"args": {
+"query": "string",
+"limit": "number"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "npmRepoStats",
+"sert_a": "Get repository statistics for NPM packages",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmDeprecated",
+"sert_a": "Check if packages are deprecated",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+},
+{
+"nom": "npmQuality",
+"sert_a": "Analyze package quality metrics",
+"args": {
+"packages": "liste de string"
+},
+"requis": [
+"packages"
+]
+}
+]
+},
+{
+"id": "openapi",
+"nom": "openapi",
+"image": "mcp/openapi",
+"etat": "ok",
+"desc": "Fetch, validate, and generate code or curl from any OpenAPI or Swagger spec - all from a single URL.",
+"sert_a": "Lire et comprendre n'importe quelle API (OpenAPI/Swagger)",
+"mots": "openapi swagger api specification documentation",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 5
+},
+"digest": "mcp/openapi@sha256:26234065b6a786e69088b9b22ec4f9130572704664211e76e9b0887c388186e5",
+"outils": [
+{
+"nom": "get_known_responses",
+"sert_a": "Analyze an OpenAPI or Swagger document provided as a URL OR a raw JSON string or file contents, and list possible HTTP responses (status co…",
+"args": {
+"addressOrFileContents": "string",
+"operationId": "string"
+},
+"requis": [
+"addressOrFileContents",
+"operationId"
+]
+},
+{
+"nom": "generate_curl_command",
+"sert_a": "Generate a cURL command for a given operation ID from a URL OR a raw JSON string or file contents pointing to an OpenAPI or Swagger JSON do…",
+"args": {
+"addressOrFileContents": "string",
+"operationId": "string",
+"baseAddress": "string"
+},
+"requis": [
+"addressOrFileContents",
+"operationId",
+"baseAddress"
+]
+},
+{
+"nom": "validate_document",
+"sert_a": "Analyze and validate an OpenAPI or Swagger document provided as a URL OR a raw JSON string or file contents, and list possible errors, issu…",
+"args": {
+"addressOrFileContents": "string"
+},
+"requis": [
+"addressOrFileContents"
+]
+},
+{
+"nom": "create_csharp_snippet",
+"sert_a": "Generate a C# code snippet for a given operation ID from a URL OR a raw JSON string or file contents pointing to an OpenAPI or Swagger JSON…",
+"args": {
+"addressOrFileContents": "string",
+"operationId": "string",
+"baseAddress": "string"
+},
+"requis": [
+"addressOrFileContents",
+"operationId",
+"baseAddress"
+]
+},
+{
+"nom": "get_list_of_operations",
+"sert_a": "Retrieve a list of operations (endpoints) from a URL OR a raw JSON string or file contents pointing to an OpenAPI or Swagger JSON document.",
+"args": {
+"addressOrFileContents": "string"
+},
+"requis": [
+"addressOrFileContents"
+]
+}
+]
+},
+{
+"id": "osp_marketing_tools",
+"nom": "osp_marketing_tools",
+"image": "mcp/osp_marketing_tools",
+"etat": "ok",
+"desc": "OSP Marketing Tools",
+"sert_a": "Guides de redaction marketing (positionnement, contenu)",
+"mots": "marketing redaction contenu positionnement",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 6
+},
+"digest": "mcp/osp_marketing_tools@sha256:34b72f4cc3d274a9b975bca22adb0f664055a1ca2c74a9417c8149512e772eaa",
+"outils": [
+{
+"nom": "get_editing_codes",
+"sert_a": "Get the Open Strategy Partners (OSP) editing codes documentation and usage protocol for editing texts.",
+"args": {},
+"requis": []
+},
+{
+"nom": "get_writing_guide",
+"sert_a": "Get the Open Strategy Partners (OSP) writing guide and usage protocol for editing texts.",
+"args": {},
+"requis": []
+},
+{
+"nom": "get_meta_guide",
+"sert_a": "Get the Open Strategy Partners (OSP) Web Content Meta Information Generation System (titles, meta-titles, slugs).",
+"args": {},
+"requis": []
+},
+{
+"nom": "get_value_map_positioning_guide",
+"sert_a": "Get the Open Strategy Partners (OSP) Product Communications Value Map Generation System for Product Positioning (value cases, feature extra…",
+"args": {},
+"requis": []
+},
+{
+"nom": "get_on_page_seo_guide",
+"sert_a": "Get the Open Strategy Partners (OSP) On-Page SEO Optimization Guide.",
+"args": {},
+"requis": []
+}
+]
+},
+{
+"id": "paper-search",
+"nom": "paper-search",
+"image": "mcp/paper-search",
+"etat": "ok",
+"desc": "Paper Search",
+"sert_a": "Articles scientifiques (arXiv, PubMed, bioRxiv...)",
+"mots": "article scientifique papier recherche publication etude arxiv pubmed biorxiv",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 57
+},
+"digest": "mcp/paper-search@sha256:19d0af269a5531403fbb042aad8277d1a9ec2315c972769c7ca8efb3a76eca34",
+"outils": [
+{
+"nom": "search_papers",
+"sert_a": "Unified top-level search across all configured academic platforms.",
+"args": {
+"query": "string",
+"max_results_per_source": "integer",
+"sources": "string",
+"year": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "search_arxiv",
+"sert_a": "Search academic papers from arXiv.",
+"args": {
+"query": "string",
+"max_results": "integer",
+"sort_by": "string",
+"sort_order": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "search_pubmed",
+"sert_a": "Search academic papers from PubMed.",
+"args": {
+"query": "string",
+"max_results": "integer",
+"sort": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "search_biorxiv",
+"sert_a": "Search academic papers from bioRxiv.",
+"args": {
+"query": "string",
+"max_results": "integer"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "search_medrxiv",
+"sert_a": "Search academic papers from medRxiv.",
+"args": {
+"query": "string",
+"max_results": "integer"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "search_semantic",
+"sert_a": "Search academic papers from Semantic Scholar.",
+"args": {
+"query": "string",
+"year": "string",
+"max_results": "integer"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "search_crossref",
+"sert_a": "Search academic papers from CrossRef database.",
+"args": {
+"query": "string",
+"max_results": "integer",
+"filter": "string",
+"sort": "string",
+"order": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "get_crossref_paper_by_doi",
+"sert_a": "Get a specific paper from CrossRef by its DOI.",
+"args": {
+"doi": "string"
+},
+"requis": [
+"doi"
+]
+},
+{
+"nom": "search_openalex",
+"sert_a": "Search academic papers from OpenAlex.",
+"args": {
+"query": "string",
+"max_results": "integer"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "search_europepmc",
+"sert_a": "Search academic papers from Europe PMC.",
+"args": {
+"query": "string",
+"max_results": "integer"
+},
+"requis": [
+"query"
+]
+}
+]
+},
+{
+"id": "sequentialthinking",
+"nom": "sequentialthinking",
+"image": "mcp/sequentialthinking",
+"etat": "ok",
+"desc": "Dynamic and reflective problem-solving through thought sequences.",
+"sert_a": "Reflechir a un probleme complexe etape par etape",
+"mots": "raisonner reflechir etape probleme complexe planifier",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 1
+},
+"digest": "mcp/sequentialthinking@sha256:cd3174b2ecf37738654cf7671fb1b719a225c40a78274817da00c4241f465e5f",
+"outils": [
+{
+"nom": "sequentialthinking",
+"sert_a": "Reflechir etape par etape a un probleme complexe (une pensee a la fois)",
+"args": {
+"thought": "string",
+"nextThoughtNeeded": "boolean",
+"thoughtNumber": "integer",
+"totalThoughts": "integer",
+"isRevision": "boolean",
+"revisesThought": "integer",
+"branchFromThought": "integer",
+"branchId": "string"
+},
+"requis": [
+"thought",
+"nextThoughtNeeded",
+"thoughtNumber",
+"totalThoughts"
+]
+}
+]
+},
+{
+"id": "sqlite",
+"nom": "SQLite",
+"image": "mcp/sqlite",
+"etat": "ok",
+"desc": "Database interaction and business intelligence capabilities.",
+"sert_a": "Base de donnees SQLite privee : creer, remplir, interroger",
+"mots": "sqlite base de donnees sql table requete",
+"sur": false,
+"volumes": [
+"mcp-sqlite:/mcp"
+],
+"cmd": [
+"--db-path",
+"/mcp/db.sqlite"
+],
+"verifie": {
+"ok": true,
+"outils": 6
+},
+"digest": "mcp/sqlite@sha256:efbc05ccace18df122f26b674bd1730c76ece716551df2b3961d519909c34696",
+"outils": [
+{
+"nom": "read_query",
+"sert_a": "Execute a SELECT query on the SQLite database",
+"args": {
+"query": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "write_query",
+"sert_a": "Execute an INSERT, UPDATE, or DELETE query on the SQLite database",
+"args": {
+"query": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "create_table",
+"sert_a": "Create a new table in the SQLite database",
+"args": {
+"query": "string"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "list_tables",
+"sert_a": "List all tables in the SQLite database",
+"args": {},
+"requis": []
+},
+{
+"nom": "describe_table",
+"sert_a": "Get the schema information for a specific table",
+"args": {
+"table_name": "string"
+},
+"requis": [
+"table_name"
+]
+},
+{
+"nom": "append_insight",
+"sert_a": "Add a business insight to the memo",
+"args": {
+"insight": "string"
+},
+"requis": [
+"insight"
+]
+}
+]
+},
+{
+"id": "terraform-mcp-server",
+"nom": "terraform",
+"image": "hashicorp/terraform-mcp-server",
+"etat": "ok",
+"desc": "Hashicorp Terraform",
+"sert_a": "Terraform : chercher fournisseurs et modules du registre",
+"mots": "terraform infrastructure registre module fournisseur",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 9
+},
+"digest": "hashicorp/terraform-mcp-server@sha256:11dd418bba6003dd5777e9d0979b68de59929a155b355f338f407947e00e9d80",
+"outils": [
+{
+"nom": "get_latest_module_version",
+"sert_a": "Fetches the latest version of a Terraform module from the public registry",
+"args": {
+"module_name": "string",
+"module_provider": "string",
+"module_publisher": "string"
+},
+"requis": [
+"module_publisher",
+"module_name",
+"module_provider"
+]
+},
+{
+"nom": "get_latest_provider_version",
+"sert_a": "Fetches the latest version of a Terraform provider from the public registry",
+"args": {
+"name": "string",
+"namespace": "string"
+},
+"requis": [
+"namespace",
+"name"
+]
+},
+{
+"nom": "get_module_details",
+"sert_a": "Documentation d'un module Terraform (son id vient de search_modules)",
+"args": {
+"module_id": "string"
+},
+"requis": [
+"module_id"
+]
+},
+{
+"nom": "get_policy_details",
+"sert_a": "Details d'une politique Terraform (son id vient de search_policies)",
+"args": {
+"terraform_policy_id": "string"
+},
+"requis": [
+"terraform_policy_id"
+]
+},
+{
+"nom": "get_provider_capabilities",
+"sert_a": "Get the capabilities of a Terraform provider including the types of resources, data sources, functions, guides, and other features it suppo…",
+"args": {
+"name": "string",
+"namespace": "string",
+"version": "string"
+},
+"requis": [
+"namespace",
+"name"
+]
+},
+{
+"nom": "get_provider_details",
+"sert_a": "Documentation d'un service d'un fournisseur Terraform (id de search_provider_docs)",
+"args": {
+"provider_doc_id": "string"
+},
+"requis": [
+"provider_doc_id"
+]
+},
+{
+"nom": "search_modules",
+"sert_a": "Cherche un module Terraform par nom et donne son id",
+"args": {
+"current_offset": "number",
+"module_query": "string"
+},
+"requis": [
+"module_query"
+]
+},
+{
+"nom": "search_policies",
+"sert_a": "Cherche des politiques Terraform par mot",
+"args": {
+"policy_query": "string"
+},
+"requis": [
+"policy_query"
+]
+},
+{
+"nom": "search_provider_docs",
+"sert_a": "Cherche dans la doc d'un fournisseur Terraform (service_slug, provider_name...)",
+"args": {
+"provider_document_type": "resources|data-sources|functions|guides|overview|actions|list-resources",
+"provider_name": "string",
+"provider_namespace": "string",
+"provider_version": "string",
+"service_slug": "string"
+},
+"requis": [
+"provider_name",
+"provider_namespace",
+"service_slug",
+"provider_document_type"
+]
+}
+]
+},
+{
+"id": "time",
+"nom": "time",
+"image": "mcp/time",
+"etat": "ok",
+"desc": "Time and timezone conversion capabilities",
+"sert_a": "Heure exacte dans n'importe quel fuseau horaire, conversions",
+"mots": "heure fuseau horaire decalage timezone",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 2
+},
+"digest": "mcp/time@sha256:9c46a918633fb474bf8035e3ee90ebac6bcf2b18ccb00679ac4c179cba0ebfcf",
+"outils": [
+{
+"nom": "get_current_time",
+"sert_a": "Get current time in a specific timezones",
+"args": {
+"timezone": "string"
+},
+"requis": [
+"timezone"
+]
+},
+{
+"nom": "convert_time",
+"sert_a": "Convert time between timezones",
+"args": {
+"source_timezone": "string",
+"time": "string",
+"target_timezone": "string"
+},
+"requis": [
+"source_timezone",
+"time",
+"target_timezone"
+]
+}
+]
+},
+{
+"id": "vuln-nist-mcp-server",
+"nom": "vuln-nist-mcp-server",
+"image": "mcp/vuln-nist-mcp-server",
+"etat": "ok",
+"desc": "This MCP server exposes tools to query the NVD/CVE REST API and return formatted text results suitable for LLM consumption via the MCP protocol. It i…",
+"sert_a": "Failles de securite (base NVD / CVE)",
+"mots": "cve faille vulnerabilite securite nvd nist",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 6
+},
+"digest": "mcp/vuln-nist-mcp-server@sha256:e5025e66c0d28a4fb4b00f4762b91309f2538ab5ade9a9d2ea10cfacf5c04645",
+"outils": [
+{
+"nom": "get_temporal_context",
+"sert_a": "Get current date and temporal context when it needed.",
+"args": {},
+"requis": []
+},
+{
+"nom": "search_cves",
+"sert_a": "Search CVEs by keyword in description, with flexible time filtering.",
+"args": {
+"keyword": "string",
+"resultsPerPage": "integer",
+"startIndex": "integer",
+"recent_days": "integer",
+"last_days": "integer",
+"start_date": "string",
+"end_date": "string"
+},
+"requis": []
+},
+{
+"nom": "get_cve_by_id",
+"sert_a": "Retrieve a CVE by its CVE-ID",
+"args": {
+"cve_id": "string"
+},
+"requis": []
+},
+{
+"nom": "cves_by_cpe",
+"sert_a": "List CVEs associated with a specific CPE",
+"args": {
+"cpe_name": "string",
+"is_vulnerable": "string"
+},
+"requis": []
+},
+{
+"nom": "kevs_between",
+"sert_a": "List CVEs added to CISA KEV catalog in a date window.",
+"args": {
+"kevStartDate": "string",
+"kevEndDate": "string",
+"resultsPerPage": "string",
+"startIndex": "string"
+},
+"requis": []
+},
+{
+"nom": "cve_change_history",
+"sert_a": "Retrieve change history for a CVE or a time window.",
+"args": {
+"cve_id": "string",
+"changeStartDate": "string",
+"changeEndDate": "string",
+"resultsPerPage": "string",
+"startIndex": "string"
+},
+"requis": []
+}
+]
+},
+{
+"id": "wikipedia-mcp",
+"nom": "wikipedia-mcp",
+"image": "mcp/wikipedia-mcp",
+"etat": "ok",
+"desc": "Wikipedia",
+"sert_a": "Wikipedia : chercher et lire des articles",
+"mots": "wikipedia encyclopedie article definition",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 22
+},
+"digest": "mcp/wikipedia-mcp@sha256:32ce608113696e8d6efc8bbfcc1ef4d52552a3543a3cd733427c6169767849d2",
+"outils": [
+{
+"nom": "search_wikipedia",
+"sert_a": "Search Wikipedia for articles matching a query.",
+"args": {
+"query": "string",
+"limit": "integer"
+},
+"requis": [
+"query"
+]
+},
+{
+"nom": "get_article",
+"sert_a": "Get the full content of a Wikipedia article.",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "get_summary",
+"sert_a": "Get a summary of a Wikipedia article.",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "extract_key_facts",
+"sert_a": "Extract key facts from a Wikipedia article, optionally focused on a topic.",
+"args": {
+"title": "string",
+"topic_within_article": "string",
+"count": "integer"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "get_related_topics",
+"sert_a": "Get topics related to a Wikipedia article based on links and categories.",
+"args": {
+"title": "string",
+"limit": "integer"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "get_sections",
+"sert_a": "Get the sections of a Wikipedia article.",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "get_links",
+"sert_a": "Get the links contained within a Wikipedia article.",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+},
+{
+"nom": "get_coordinates",
+"sert_a": "Get the coordinates of a Wikipedia article.",
+"args": {
+"title": "string"
+},
+"requis": [
+"title"
+]
+}
+]
+},
+{
+"id": "youtube-transcript",
+"nom": "youtube_transcript",
+"image": "mcp/youtube-transcript",
+"etat": "ok",
+"desc": "Retrieves transcripts for given YouTube video URLs",
+"sert_a": "Texte (sous-titres) d'une video YouTube",
+"mots": "youtube transcription sous-titres video texte",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 4
+},
+"digest": "mcp/youtube-transcript@sha256:90eefb4847542a7d52cbe32a43d74883c4bd1d4b6a8a9f0711670f4e7ead23bd",
+"outils": [
+{
+"nom": "get_transcript",
+"sert_a": "Retrieves the transcript of a YouTube video.",
+"args": {
+"url": "string",
+"lang": "string",
+"next_cursor": "string"
+},
+"requis": [
+"url"
+]
+},
+{
+"nom": "get_timed_transcript",
+"sert_a": "Retrieves the transcript of a YouTube video with timestamps.",
+"args": {
+"url": "string",
+"lang": "string",
+"next_cursor": "string"
+},
+"requis": [
+"url"
+]
+},
+{
+"nom": "get_video_info",
+"sert_a": "Retrieves the video information.",
+"args": {
+"url": "string"
+},
+"requis": [
+"url"
+]
+},
+{
+"nom": "get_available_languages",
+"sert_a": "Retrieves the available languages for the video.",
+"args": {
+"url": "string"
+},
+"requis": [
+"url"
+]
+}
+]
+},
+{
+"id": "aws-documentation",
+"nom": "aws-documentation",
+"image": "mcp/aws-documentation",
+"etat": "echec",
+"desc": "Tools to access AWS documentation, search for content, and get recommendations.",
+"sert_a": "Documentation officielle d'Amazon AWS",
+"mots": "aws amazon cloud documentation",
+"sur": true,
+"verifie": {
+"ok": false
+}
+},
+{
+"id": "gemini-api-docs-mcp",
+"nom": "gemini-api-docs",
+"image": "mcp/gemini-api-docs-mcp",
+"etat": "echec",
+"desc": "Provides tools to search and retrieve Google Gemini API documentation.",
+"sert_a": "Documentation de l'API Gemini de Google",
+"mots": "gemini api documentation google ia",
+"sur": true,
+"verifie": {
+"ok": false
+}
+},
+{
+"id": "google-flights",
+"nom": "google-flights",
+"image": "mcp/google-flights",
+"etat": "echec",
+"desc": "Interact with Google Flights data to search for one-way, round-trip, and date range flight options between airports",
+"sert_a": "Vols Google Flights : aller simple, aller-retour, dates",
+"mots": "vol vols avion billet google flights prix aeroport",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 3
+},
+"ro": true
+},
+{
+"id": "markitdown",
+"nom": "markitdown",
+"image": "mcp/markitdown",
+"etat": "echec",
+"desc": "A lightweight MCP server for calling MarkItDown.",
+"sert_a": "Convertit un lien ou un document (pdf, word, excel...) en texte",
+"mots": "convertir document pdf word excel markdown texte",
+"sur": true,
+"verifie": {
+"ok": false
+}
+},
+{
+"id": "openbnb-airbnb",
+"nom": "openbnb-airbnb",
+"image": "mcp/openbnb-airbnb",
+"etat": "echec",
+"desc": "MCP Server for searching Airbnb and get listing details.",
+"sert_a": "Chercher des logements Airbnb et voir une annonce",
+"mots": "airbnb logement location hebergement sejour",
+"sur": true,
+"verifie": {
+"ok": true,
+"outils": 2
+},
+"ro": true
+},
+{
+"id": "airtable-mcp-server",
+"nom": "airtable-mcp-server",
+"image": "mcp/airtable-mcp-server",
+"etat": "compte",
+"desc": "Provides AI assistants with direct access to Airtable bases, allowing them to read schemas, query records, and interact with your Airtable data. Supp…"
+},
+{
+"id": "alfresco-mcp-server",
+"nom": "alfresco",
+"image": "angelborroy/alfresco-mcp-server",
+"etat": "compte",
+"desc": "A minimal Model Context Protocol (MCP) server for Alfresco providing tools via the Alfresco REST API"
+},
+{
+"id": "amazon-kendra-index-mcp-server",
+"nom": "amazon-kendra-index",
+"image": "mcp/amazon-kendra-index-mcp-server",
+"etat": "compte",
+"desc": "Enterprise search and RAG enhancement."
+},
+{
+"id": "amazon-neptune-mcp-server",
+"nom": "amazon-neptune",
+"image": "mcp/amazon-neptune-mcp-server",
+"etat": "compte",
+"desc": "Graph database queries with Cypher and Gremlin."
+},
+{
+"id": "amazon-qbusiness-anonymous-mcp-server",
+"nom": "amazon-qbusiness-anonymous",
+"image": "mcp/amazon-qbusiness-anonymous-mcp-server",
+"etat": "compte",
+"desc": "AI assistant for ingested content with anonymous access."
+},
+{
+"id": "api-gateway",
+"nom": "mcp-api-gateway",
+"image": "mcp/api-gateway",
+"etat": "compte",
+"desc": "A universal MCP (Model Context Protocol) server to integrate any API with Claude Desktop using only Docker configurations."
+},
+{
+"id": "api-mcp-server",
+"nom": "hostinger-mcp-server",
+"image": "mcp/api-mcp-server",
+"etat": "compte",
+"desc": "Interact with Hostinger services over the Hostinger API."
+},
+{
+"id": "apify-mcp-server",
+"nom": "apify-mcp-server",
+"image": "mcp/apify-mcp-server",
+"etat": "compte",
+"desc": "Apify is the world's largest marketplace of tools for web scraping, data extraction, and web automation. You can extract structured data from social …"
+},
+{
+"id": "apollo-mcp-server",
+"nom": "apollo-mcp-server",
+"image": "ghcr.io/apollographql/apollo-mcp-server",
+"etat": "compte",
+"desc": "Enable graph-based API orchestration with AI"
+},
+{
+"id": "astra-db",
+"nom": "astra-db",
+"image": "mcp/astra-db",
+"etat": "compte",
+"desc": "Astra DB"
+},
+{
+"id": "atlan",
+"nom": "atlan",
+"image": "mcp/atlan",
+"etat": "compte",
+"desc": "MCP server for interacting with Atlan services including asset search, updates, and lineage traversal for comprehensive data governance and discovery."
+},
+{
+"id": "atlas-docs",
+"nom": "atlas-docs",
+"image": "mcp/atlas-docs",
+"etat": "compte",
+"desc": "Atlas Docs"
+},
+{
+"id": "atlassian",
+"nom": "atlassian",
+"image": "mcp/atlassian",
+"etat": "compte",
+"desc": "Tools for Atlassian products (Confluence and Jira). This integration supports both Atlassian Cloud and Jira Server/Data Center deployments."
+},
+{
+"id": "audiense-insights",
+"nom": "audiense-insights",
+"image": "mcp/audiense-insights",
+"etat": "compte",
+"desc": "Audiense Insights"
+},
+{
+"id": "aws-api-mcp-server",
+"nom": "aws-api",
+"image": "mcp/aws-api-mcp-server",
+"etat": "compte",
+"desc": "Comprehensive AWS API support with command validation and access to all services."
+},
+{
+"id": "aws-appsync-mcp-server",
+"nom": "aws-appsync",
+"image": "mcp/aws-appsync-mcp-server",
+"etat": "compte",
+"desc": "Manage applications powered by AWS AppSync."
+},
+{
+"id": "aws-bedrock-custom-model-import-mcp-server",
+"nom": "aws-bedrock-custom-model-import",
+"image": "mcp/aws-bedrock-custom-model-import-mcp-server",
+"etat": "compte",
+"desc": "Manage custom models in Bedrock."
+},
+{
+"id": "aws-bedrock-data-automation-mcp-server",
+"nom": "aws-bedrock-data-automation",
+"image": "mcp/aws-bedrock-data-automation-mcp-server",
+"etat": "compte",
+"desc": "Analyze documents, images, videos, and audio."
+},
+{
+"id": "aws-dataprocessing-mcp-server",
+"nom": "aws-dataprocessing",
+"image": "mcp/aws-dataprocessing-mcp-server",
+"etat": "compte",
+"desc": "Data processing and transformation services."
+},
+{
+"id": "aws-healthomics-mcp-server",
+"nom": "aws-healthomics",
+"image": "mcp/aws-healthomics-mcp-server",
+"etat": "compte",
+"desc": "Generate, run, debug lifescience workflows."
+},
+{
+"id": "aws-iot-sitewise-mcp-server",
+"nom": "aws-iot-sitewise",
+"image": "mcp/aws-iot-sitewise-mcp-server",
+"etat": "compte",
+"desc": "Industrial IoT asset management."
+},
+{
+"id": "aws-kb-retrieval-server",
+"nom": "aws-kb-retrieval-server",
+"image": "mcp/aws-kb-retrieval-server",
+"etat": "compte",
+"desc": "An MCP server implementation for retrieving information from the AWS Knowledge Base using the Bedrock Agent Runtime."
+},
+{
+"id": "aws-location-mcp-server",
+"nom": "aws-location",
+"image": "mcp/aws-location-mcp-server",
+"etat": "compte",
+"desc": "Place search, geocoding, and route optimization."
+},
+{
+"id": "aws-msk-mcp-server",
+"nom": "aws-msk",
+"image": "mcp/aws-msk-mcp-server",
+"etat": "compte",
+"desc": "Managed Kafka cluster operations."
+},
+{
+"id": "aws-pricing-mcp-server",
+"nom": "aws-pricing",
+"image": "mcp/aws-pricing-mcp-server",
+"etat": "compte",
+"desc": "AWS service pricing and cost estimates."
+},
+{
+"id": "beagle-security-mcp-server",
+"nom": "beagle-security",
+"image": "mcp/beagle-security-mcp-server",
+"etat": "compte",
+"desc": "Connects with the Beagle Security backend using a user token to manage applications, run automated security tests, track vulnerabilities across envir…"
+},
+{
+"id": "billing-cost-management-mcp-server",
+"nom": "awslabs-billing-cost-management",
+"image": "mcp/billing-cost-management-mcp-server",
+"etat": "compte",
+"desc": "Billing and cost management."
+},
+{
+"id": "bitrefill",
+"nom": "bitrefill",
+"image": "mcp/bitrefill",
+"etat": "compte",
+"desc": "Bitrefill"
+},
+{
+"id": "box",
+"nom": "box",
+"image": "mcp/box",
+"etat": "compte",
+"desc": "Box"
+},
+{
+"id": "brave-search",
+"nom": "brave",
+"image": "mcp/brave-search",
+"etat": "compte",
+"desc": "Search the Web for pages, images, news, videos, and more using the Brave Search API."
+},
+{
+"id": "browserbase",
+"nom": "browserbase",
+"image": "mcp/browserbase",
+"etat": "compte",
+"desc": "Allow LLMs to control a browser with Browserbase and Stagehand for AI-powered web automation, intelligent data extraction, and screenshot capture."
+},
+{
+"id": "buildkite",
+"nom": "buildkite",
+"image": "mcp/buildkite",
+"etat": "compte",
+"desc": "Buildkite MCP lets agents interact with Buildkite Builds, Jobs, Logs, Packages and Test Suites"
+},
+{
+"id": "camunda",
+"nom": "camunda",
+"image": "mcp/camunda",
+"etat": "compte",
+"desc": "Tools to interact with the Camunda 7 Community Edition Engine using the Model Context Protocol (MCP). Whether you're automating workflows, querying p…"
+},
+{
+"id": "ccapi-mcp-server",
+"nom": "awslabs-ccapi",
+"image": "mcp/ccapi-mcp-server",
+"etat": "compte",
+"desc": "Direct resource management with security scanning."
+},
+{
+"id": "cdata-connectcloud",
+"nom": "cdata-connectcloud",
+"image": "mcp/cdata-connectcloud",
+"etat": "compte",
+"desc": "CData Connect Cloud"
+},
+{
+"id": "cfn-mcp-server",
+"nom": "awslabs-cfn",
+"image": "mcp/cfn-mcp-server",
+"etat": "compte",
+"desc": "CloudFormation resource management via Cloud Control API."
+},
+{
+"id": "charmhealth-mcp-server",
+"nom": "charmhealth-mcp-server",
+"image": "mcp/charmhealth-mcp-server",
+"etat": "compte",
+"desc": "An MCP server for CharmHealth EHR that allows LLMs and MCP clients to interact with patient records, encounters, and practice information."
+},
+{
+"id": "chroma",
+"nom": "chroma",
+"image": "mcp/chroma",
+"etat": "compte",
+"desc": "Chroma"
+},
+{
+"id": "clickhouse",
+"nom": "clickhouse",
+"image": "mcp/clickhouse",
+"etat": "compte",
+"desc": "Official ClickHouse MCP Server"
+},
+{
+"id": "cloud-run-mcp",
+"nom": "cloud-run-mcp",
+"image": "mcp/cloud-run-mcp",
+"etat": "compte",
+"desc": "MCP server to deploy apps to Cloud Run"
+},
+{
+"id": "cloudtrail-mcp-server",
+"nom": "awslabs-cloudtrail",
+"image": "mcp/cloudtrail-mcp-server",
+"etat": "compte",
+"desc": "AWS CloudTrail audit logging and monitoring."
+},
+{
+"id": "cloudwatch-appsignals-mcp-server",
+"nom": "awslabs-cloudwatch-appsignals",
+"image": "mcp/cloudwatch-appsignals-mcp-server",
+"etat": "compte",
+"desc": "Application performance monitoring and insights."
+},
+{
+"id": "cloudwatch-mcp-server",
+"nom": "awslabs-cloudwatch",
+"image": "mcp/cloudwatch-mcp-server",
+"etat": "compte",
+"desc": "Metrics, alarms, and logs analysis."
+},
+{
+"id": "cockroachdb",
+"nom": "cockroachdb",
+"image": "mcp/cockroachdb",
+"etat": "compte",
+"desc": "Enable AI agents to manage, monitor, and query CockroachDB using natural language. Perform complex database operations, cluster management, and query…"
+},
+{
+"id": "cost-explorer-mcp-server",
+"nom": "awslabs-cost-explorer",
+"image": "mcp/cost-explorer-mcp-server",
+"etat": "compte",
+"desc": "Detailed cost analysis and reporting."
+},
+{
+"id": "couchbase",
+"nom": "couchbase",
+"image": "mcp/couchbase",
+"etat": "compte",
+"desc": "Couchbase is a distributed document database with a powerful search engine and in-built operational and analytical capabilities."
+},
+{
+"id": "cylera-mcp-server",
+"nom": "cylera-mcp-server",
+"image": "mcp/cylera-mcp-server",
+"etat": "compte",
+"desc": "Brings context about device inventory, threats, risks and utilization powered by the Cylera Partner API into an LLM."
+},
+{
+"id": "cyreslab-ai-shodan",
+"nom": "cyreslab-ai-shodan",
+"image": "mcp/cyreslab-ai-shodan",
+"etat": "compte",
+"desc": "Shodan"
+},
+{
+"id": "dappier",
+"nom": "dappier",
+"image": "mcp/dappier",
+"etat": "compte",
+"desc": "Dappier"
+},
+{
+"id": "dart",
+"nom": "dart",
+"image": "mcp/dart",
+"etat": "compte",
+"desc": "Dart AI"
+},
+{
+"id": "descope",
+"nom": "descope",
+"image": "mcp/descope",
+"etat": "compte",
+"desc": "The Descope Model Context Protocol (MCP) server provides an interface to interact with Descope's Management APIs, enabling the search and retrieval o…"
+},
+{
+"id": "devhub-cms",
+"nom": "devhub-cms",
+"image": "mcp/devhub-cms",
+"etat": "compte",
+"desc": "DevHub CMS"
+},
+{
+"id": "df-mcp",
+"nom": "dreamfactory-mcp",
+"image": "mcp/df-mcp",
+"etat": "compte",
+"desc": "DreamFactory is a REST API generation platform with support for hundreds of data sources, including Microsoft SQL Server, MySQL, PostgreSQL, and Mong…"
+},
+{
+"id": "dockerhub",
+"nom": "dockerhub",
+"image": "mcp/dockerhub",
+"etat": "compte",
+"desc": "Docker Hub official MCP server"
+},
+{
+"id": "dynamodb-mcp-server",
+"nom": "awslabs-dynamodb",
+"image": "mcp/dynamodb-mcp-server",
+"etat": "compte",
+"desc": "Complete DynamoDB operations and table management."
+},
+{
+"id": "dynatrace-mcp-server",
+"nom": "dynatrace-mcp-server",
+"image": "mcp/dynatrace-mcp-server",
+"etat": "compte",
+"desc": "This MCP Server allows interaction with the Dynatrace observability platform, brining real-time observability data directly into your development wor…"
+},
+{
+"id": "e2b",
+"nom": "e2b",
+"image": "mcp/e2b",
+"etat": "compte",
+"desc": "E2B"
+},
+{
+"id": "edubase",
+"nom": "edubase",
+"image": "mcp/edubase",
+"etat": "compte",
+"desc": "EduBase"
+},
+{
+"id": "elasticache-mcp-server",
+"nom": "awslabs-elasticache",
+"image": "mcp/elasticache-mcp-server",
+"etat": "compte",
+"desc": "ElastiCache control plane operations."
+},
+{
+"id": "elasticsearch",
+"nom": "elasticsearch",
+"image": "mcp/elasticsearch",
+"etat": "compte",
+"desc": "Interact with your Elasticsearch indices through natural language conversations."
+},
+{
+"id": "elevenlabs",
+"nom": "elevenlabs",
+"image": "mcp/elevenlabs",
+"etat": "compte",
+"desc": "Official ElevenLabs Model Context Protocol (MCP) server that enables interaction with powerful Text to Speech and audio processing APIs."
+},
+{
+"id": "everart",
+"nom": "everart",
+"image": "mcp/everart",
+"etat": "compte",
+"desc": "Image generation server using EverArt's API."
+},
+{
+"id": "exa",
+"nom": "exa",
+"image": "mcp/exa",
+"etat": "compte",
+"desc": "Exa"
+},
+{
+"id": "explorium",
+"nom": "explorium",
+"image": "mcp/explorium",
+"etat": "compte",
+"desc": "Discover companies, contacts, and business insights—powered by dozens of trusted external data sources."
+},
+{
+"id": "fibery",
+"nom": "fibery",
+"image": "mcp/fibery",
+"etat": "compte",
+"desc": "Interact with your Fibery workspace."
+},
+{
+"id": "firecrawl",
+"nom": "firecrawl",
+"image": "mcp/firecrawl",
+"etat": "compte",
+"desc": "Search, scrape, and interact with the web for AI agents. Turn any URL into clean Markdown or structured JSON, search the live web and specialized ind…"
+},
+{
+"id": "firewalla-mcp-server",
+"nom": "firewalla-mcp-server",
+"image": "mcp/firewalla-mcp-server",
+"etat": "compte",
+"desc": "Real-time network monitoring, security analysis, and firewall management through 28 specialized tools. Access security alerts, network flows, device …"
+},
+{
+"id": "flexprice",
+"nom": "flexprice",
+"image": "mcp/flexprice",
+"etat": "compte",
+"desc": "FlexPrice"
+},
+{
+"id": "github",
+"nom": "github",
+"image": "mcp/github",
+"etat": "compte",
+"desc": "Tools for interacting with the GitHub API, enabling file operations, repository management, search functionality, and more."
+},
+{
+"id": "github-chat",
+"nom": "github-chat",
+"image": "mcp/github-chat",
+"etat": "compte",
+"desc": "GitHub Chat"
+},
+{
+"id": "github-mcp-server",
+"nom": "github-official",
+"image": "ghcr.io/github/github-mcp-server",
+"etat": "compte",
+"desc": "Official GitHub MCP Server, by GitHub. Provides seamless integration with GitHub APIs, enabling advanced automation and interaction capabilities for …"
+},
+{
+"id": "gitlab",
+"nom": "gitlab",
+"image": "mcp/gitlab",
+"etat": "compte",
+"desc": "MCP Server for the GitLab API, enabling project management, file operations, and more."
+},
+{
+"id": "glif",
+"nom": "glif",
+"image": "mcp/glif",
+"etat": "compte",
+"desc": "glif.app"
+},
+{
+"id": "gmail-mcp",
+"nom": "gmail-mcp",
+"image": "yashtekwani/gmail-mcp",
+"etat": "compte",
+"desc": "serveur gmail-mcp"
+},
+{
+"id": "google-maps",
+"nom": "google-maps",
+"image": "mcp/google-maps",
+"etat": "compte",
+"desc": "Tools for interacting with the Google Maps API."
+},
+{
+"id": "google-maps-comprehensive",
+"nom": "google-maps-comprehensive",
+"image": "mcp/google-maps-comprehensive",
+"etat": "compte",
+"desc": "Complete Google Maps integration with 8 tools including geocoding, places search, directions, elevation data, and more using Google's latest APIs."
+},
+{
+"id": "grafana",
+"nom": "grafana",
+"image": "mcp/grafana",
+"etat": "compte",
+"desc": "Grafana"
+},
+{
+"id": "gyazo",
+"nom": "gyazo",
+"image": "mcp/gyazo",
+"etat": "compte",
+"desc": "Gyazo"
+},
+{
+"id": "hackle",
+"nom": "hackle",
+"image": "mcp/hackle",
+"etat": "compte",
+"desc": "Hackle"
+},
+{
+"id": "handwriting-ocr",
+"nom": "handwriting-ocr",
+"image": "mcp/handwriting-ocr",
+"etat": "compte",
+"desc": "Handwriting OCR"
+},
+{
+"id": "hdx",
+"nom": "hdx",
+"image": "mcp/hdx",
+"etat": "compte",
+"desc": "HDX MCP Server provides access to humanitarian data through the Humanitarian Data Exchange (HDX) API - https://data.humdata.org/hapi. This server off…"
+},
+{
+"id": "heroku",
+"nom": "heroku",
+"image": "mcp/heroku",
+"etat": "compte",
+"desc": "Heroku"
+},
+{
+"id": "hummingbot-mcp",
+"nom": "hummingbot-mcp",
+"image": "hummingbot/hummingbot-mcp",
+"etat": "compte",
+"desc": "Hummingbot MCP is an open-source toolset that lets you control and monitor your Hummingbot trading bots through AI-powered commands and automation."
+},
+{
+"id": "husqvarna-automower",
+"nom": "husqvarna-automower",
+"image": "mcp/husqvarna-automower",
+"etat": "compte",
+"desc": "Husqvarna Automower"
+},
+{
+"id": "hyperbrowser",
+"nom": "hyperbrowser",
+"image": "mcp/hyperbrowser",
+"etat": "compte",
+"desc": "Hyperbrowser"
+},
+{
+"id": "hyperspell",
+"nom": "hyperspell",
+"image": "mcp/hyperspell",
+"etat": "compte",
+"desc": "Hyperspell"
+},
+{
+"id": "iam-mcp-server",
+"nom": "awslabs-iam",
+"image": "mcp/iam-mcp-server",
+"etat": "compte",
+"desc": "IAM user, role, group, and policy management."
+},
+{
+"id": "iaptic",
+"nom": "iaptic",
+"image": "mcp/iaptic",
+"etat": "compte",
+"desc": "Iaptic"
+},
+{
+"id": "jetbrains",
+"nom": "jetbrains",
+"image": "mcp/jetbrains",
+"etat": "compte",
+"desc": "JetBrains"
+},
+{
+"id": "kafka-schema-reg-mcp",
+"nom": "kafka-schema-reg-mcp",
+"image": "aywengo/kafka-schema-reg-mcp:stable",
+"etat": "compte",
+"desc": "Comprehensive MCP server for Kafka Schema Registry operations. Features multi-registry support, schema contexts, migration tools, OAuth authenticatio…"
+},
+{
+"id": "kagisearch",
+"nom": "kagisearch",
+"image": "mcp/kagisearch",
+"etat": "compte",
+"desc": "Kagi Search"
+},
+{
+"id": "keboola-mcp",
+"nom": "keboola-mcp",
+"image": "mcp/keboola-mcp",
+"etat": "compte",
+"desc": "Keboola MCP Server is an open-source bridge between your Keboola project and modern AI tools."
+},
+{
+"id": "kgrag_mcp_server",
+"nom": "kgrag-mcp-server",
+"image": "mcp/kgrag_mcp_server",
+"etat": "compte",
+"desc": "Manage, ingest, and query structured/unstructured data. Designed to integrate with Neo4j, AWS S3, Redis, Qdrant, and LLMs."
+},
+{
+"id": "kong",
+"nom": "kong",
+"image": "mcp/kong",
+"etat": "compte",
+"desc": "Kong Konnect"
+},
+{
+"id": "lara",
+"nom": "lara",
+"image": "mcp/lara",
+"etat": "compte",
+"desc": "Connect to Lara Translate API, enabling powerful translation capabilities with support for language detection and context-aware translations."
+},
+{
+"id": "line",
+"nom": "line",
+"image": "mcp/line",
+"etat": "compte",
+"desc": "LINE"
+},
+{
+"id": "linkedin-mcp-server",
+"nom": "linkedin-mcp-server",
+"image": "stickerdaniel/linkedin-mcp-server:1.4.0",
+"etat": "compte",
+"desc": "This MCP server allows Claude and other AI assistants to access your LinkedIn. Scrape LinkedIn profiles and companies, get your recommended jobs, and…"
+},
+{
+"id": "maestro-mcp-server",
+"nom": "maestro-mcp-server",
+"image": "mcp/maestro-mcp-server",
+"etat": "compte",
+"desc": "A Model Context Protocol (MCP) server exposing Bitcoin blockchain data through the Maestro API platform. Provides tools to explore blocks, transactio…"
+},
+{
+"id": "mapbox",
+"nom": "mapbox",
+"image": "mcp/mapbox",
+"etat": "compte",
+"desc": "Transform any AI agent into a geospatially-aware system with Mapbox APIs. Provides geocoding, POI search, routing, travel time matrices, isochrones, …"
+},
+{
+"id": "mapbox-devkit",
+"nom": "mapbox-devkit",
+"image": "mcp/mapbox-devkit",
+"etat": "compte",
+"desc": "Direct access to Mapbox developer APIs for AI assistants. Enables style management, token management, GeoJSON preview, and other developer tools for …"
+},
+{
+"id": "mcp",
+"nom": "supadata",
+"image": "ghcr.io/supadata-ai/mcp",
+"etat": "compte",
+"desc": "Supadata"
+},
+{
+"id": "mcp-db-server",
+"nom": "database-server",
+"image": "souhardyak/mcp-db-server",
+"etat": "compte",
+"desc": "Comprehensive database server supporting PostgreSQL, MySQL, and SQLite with natural language SQL query capabilities. Enables AI agents to interact wi…"
+},
+{
+"id": "mcp-discord",
+"nom": "mcp-discord",
+"image": "mcp/mcp-discord",
+"etat": "compte",
+"desc": "Interact with the Discord platform."
+},
+{
+"id": "mcp-github-pr-issue-analyser",
+"nom": "mcp-github-pr-issue-analyser",
+"image": "ghcr.io/saidsef/mcp-github-pr-issue-analyser:latest",
+"etat": "compte",
+"desc": "A Model Context Protocol (MCP) application for automated GitHub PR analysis and issue management. Enables LLMs to fetch PR details, analyse diffs, ma…"
+},
+{
+"id": "mcp-victorialogs",
+"nom": "victorialogs",
+"image": "ghcr.io/victoriametrics-community/mcp-victorialogs",
+"etat": "compte",
+"desc": "Provides access to your VictoriaLogs instance and seamless integration with VictoriaLogs APIs and documentation. It can give you a comprehensive inte…"
+},
+{
+"id": "mcp-victoriametrics",
+"nom": "victoriametrics",
+"image": "ghcr.io/victoriametrics-community/mcp-victoriametrics",
+"etat": "compte",
+"desc": "Provides access to your VictoriaMetrics instance and seamless integration with VictoriaMetrics APIs and documentation. It can give you a comprehensiv…"
+},
+{
+"id": "mcp-victoriatraces",
+"nom": "victoriatraces",
+"image": "ghcr.io/victoriametrics-community/mcp-victoriatraces",
+"etat": "compte",
+"desc": "Provides access to your VictoriaTraces instance and seamless integration with VictoriaTraces APIs and documentation. It can give you a comprehensive …"
+},
+{
+"id": "memcached-mcp-server",
+"nom": "awslabs-memcached",
+"image": "mcp/memcached-mcp-server",
+"etat": "compte",
+"desc": "High-speed caching with Memcached."
+},
+{
+"id": "metabase",
+"nom": "metabase",
+"image": "mcp/metabase",
+"etat": "compte",
+"desc": "A comprehensive MCP server for Metabase with 70+ tools."
+},
+{
+"id": "mongodb",
+"nom": "mongodb",
+"image": "mcp/mongodb",
+"etat": "compte",
+"desc": "MongoDB"
+},
+{
+"id": "n8n",
+"nom": "n8n",
+"image": "mcp/n8n",
+"etat": "compte",
+"desc": "Bridges n8n's workflow automation platform with AI models, providing access to 543 n8n nodes, workflow templates, and AI-capable automation tools."
+},
+{
+"id": "nasdaq-data-link",
+"nom": "nasdaq-data-link",
+"image": "mcp/nasdaq-data-link",
+"etat": "compte",
+"desc": "MCP server to interact with the data feeds provided by the Nasdaq Data Link. Developed by the community and maintained by Stefano Amorelli."
+},
+{
+"id": "needle-mcp",
+"nom": "needle-mcp",
+"image": "mcp/needle-mcp",
+"etat": "compte",
+"desc": "Production-ready RAG service to search and retrieve data from your documents."
+},
+{
+"id": "neo4j",
+"nom": "neo4j",
+"image": "mcp/neo4j",
+"etat": "compte",
+"desc": "Official MCP server for Neo4j. Interact with Neo4j using Cypher graph queries."
+},
+{
+"id": "neo4j-cloud-aura-api",
+"nom": "neo4j-cloud-aura-api",
+"image": "mcp/neo4j-cloud-aura-api",
+"etat": "compte",
+"desc": "Manage Neo4j Aura database instances through the Neo4j Aura API."
+},
+{
+"id": "neo4j-cypher",
+"nom": "neo4j-cypher",
+"image": "mcp/neo4j-cypher",
+"etat": "compte",
+"desc": "Interact with Neo4j using Cypher graph queries."
+},
+{
+"id": "neo4j-data-modeling",
+"nom": "neo4j-data-modeling",
+"image": "mcp/neo4j-data-modeling",
+"etat": "compte",
+"desc": "MCP server that assists in creating, validating and visualizing graph data models."
+},
+{
+"id": "neo4j-memory",
+"nom": "neo4j-memory",
+"image": "mcp/neo4j-memory",
+"etat": "compte",
+"desc": "Provide persistent memory capabilities through Neo4j graph database integration."
+},
+{
+"id": "neon",
+"nom": "neon",
+"image": "mcp/neon",
+"etat": "compte",
+"desc": "Neon"
+},
+{
+"id": "notion",
+"nom": "notion",
+"image": "mcp/notion",
+"etat": "compte",
+"desc": "Notion"
+},
+{
+"id": "nova-canvas-mcp-server",
+"nom": "awslabs-nova-canvas",
+"image": "mcp/nova-canvas-mcp-server",
+"etat": "compte",
+"desc": "AI image generation using Amazon Nova Canvas."
+},
+{
+"id": "novita",
+"nom": "novita",
+"image": "mcp/novita",
+"etat": "compte",
+"desc": "Seamless interaction with Novita AI platform resources."
+},
+{
+"id": "obsidian",
+"nom": "obsidian",
+"image": "mcp/obsidian",
+"etat": "compte",
+"desc": "Obsidian"
+},
+{
+"id": "okta-mcp-fctr",
+"nom": "okta-mcp-fctr",
+"image": "mcp/okta-mcp-fctr",
+"etat": "compte",
+"desc": "Secure Okta identity and access management via Model Context Protocol (MCP). Access Okta users, groups, applications, logs, and policies through AI a…"
+},
+{
+"id": "okta-mcp-server",
+"nom": "okta-mcp-server",
+"image": "mcp/okta-mcp-server",
+"etat": "compte",
+"desc": "## :tada: __It's Official__ :tada: The Okta Open-Source MCP Server integrates with LLMs and AI agents, allowing you to perform various Okta managemen…"
+},
+{
+"id": "omi",
+"nom": "omi",
+"image": "mcp/omi",
+"etat": "compte",
+"desc": "A Model Context Protocol server for Omi interaction and automation. This server provides tools to read, search, and manipulate Memories and Conversat…"
+},
+{
+"id": "onlyoffice-docspace",
+"nom": "onlyoffice-docspace",
+"image": "mcp/onlyoffice-docspace",
+"etat": "compte",
+"desc": "ONLYOFFICE DocSpace is a room-based collaborative platform which allows organizing a clear file structure depending on users' needs or project goals."
+},
+{
+"id": "openweather",
+"nom": "openweather",
+"image": "mcp/openweather",
+"etat": "compte",
+"desc": "A simple MCP service that provides current weather and 5-day forecast using the free OpenWeatherMap API."
+},
+{
+"id": "opik",
+"nom": "opik",
+"image": "mcp/opik",
+"etat": "compte",
+"desc": "Opik"
+},
+{
+"id": "opine-mcp-server",
+"nom": "opine-mcp-server",
+"image": "codygreen719/opine-mcp-server",
+"etat": "compte",
+"desc": "A Model Context Protocol (MCP) server for querying deals and evaluations from the Opine CRM API."
+},
+{
+"id": "oracle",
+"nom": "oracle",
+"image": "mcp/oracle",
+"etat": "compte",
+"desc": "Connect to Oracle databases via MCP, providing secure read-only access with support for schema exploration, query execution, and metadata inspection"
+},
+{
+"id": "oxylabs",
+"nom": "oxylabs",
+"image": "mcp/oxylabs",
+"etat": "compte",
+"desc": "A Model Context Protocol (MCP) server that enables AI assistants like Claude to seamlessly access web data through Oxylabs' powerful web scraping tec…"
+},
+{
+"id": "perplexity-ask",
+"nom": "perplexity-ask",
+"image": "mcp/perplexity-ask",
+"etat": "compte",
+"desc": "Connector for Perplexity API, to enable real-time, web-wide research."
+},
+{
+"id": "pia",
+"nom": "pia",
+"image": "mcp/pia",
+"etat": "compte",
+"desc": "An MCP server to help make U.S. Government open datasets AI-friendly."
+},
+{
+"id": "pica-mcp-server",
+"nom": "pica",
+"image": "mcp/pica-mcp-server",
+"etat": "compte",
+"desc": "Provides access to Pica's integrations, actions, execution, and code generation capabilities."
+},
+{
+"id": "pinecone",
+"nom": "pinecone",
+"image": "mcp/pinecone",
+"etat": "compte",
+"desc": "Pinecone Assistant"
+},
+{
+"id": "pluggedin-mcp-proxy",
+"nom": "pluggedin-mcp-proxy",
+"image": "mcp/pluggedin-mcp-proxy",
+"etat": "compte",
+"desc": "A unified MCP proxy that aggregates multiple MCP servers into one interface, enabling seamless tool discovery and management across all your AI inter…"
+},
+{
+"id": "pomodash",
+"nom": "pomodash",
+"image": "mcp/pomodash",
+"etat": "compte",
+"desc": "Connect your AI assistant to PomoDash for seamless task and project management"
+},
+{
+"id": "postman",
+"nom": "postman",
+"image": "mcp/postman",
+"etat": "compte",
+"desc": "Postman's MCP server connects AI agents, assistants, and chatbots directly to your APIs on Postman. Use natural language to prompt AI to automate wor…"
+},
+{
+"id": "prometheus-mcp-server",
+"nom": "prometheus",
+"image": "ghcr.io/pab1it0/prometheus-mcp-server",
+"etat": "compte",
+"desc": "A Model Context Protocol (MCP) server that enables AI assistants to query and analyze Prometheus metrics through standardized interfaces. Connect to …"
+},
+{
+"id": "proxmox",
+"nom": "proxmox",
+"image": "mcp/proxmox",
+"etat": "compte",
+"desc": "Manage Proxmox VE infrastructure including virtual machines, containers, storage, networking, firewall rules, high availability, and more"
+},
+{
+"id": "pulumi",
+"nom": "pulumi",
+"image": "mcp/pulumi",
+"etat": "compte",
+"desc": "Pulumi MCP server enables AI-powered coding assistants to help you codify cloud architectures and get diffs for infrastructure changes right in your …"
+},
+{
+"id": "quantconnect",
+"nom": "quantconnect",
+"image": "mcp/quantconnect",
+"etat": "compte",
+"desc": "The QuantConnect MCP Server is a bridge for AIs (such as Claude and OpenAI o3 Pro) to interact with our cloud platform. When equipped with our MCP, t…"
+},
+{
+"id": "razorpay",
+"nom": "razorpay",
+"image": "mcp/razorpay",
+"etat": "compte",
+"desc": "Razorpay"
+},
+{
+"id": "reddit-mcp",
+"nom": "mcp-reddit",
+"image": "mcp/reddit-mcp",
+"etat": "compte",
+"desc": "This server provides AI agents with tools to fetch, post and search on Reddit."
+},
+{
+"id": "redis",
+"nom": "redis",
+"image": "mcp/redis",
+"etat": "compte",
+"desc": "Access to Redis database operations."
+},
+{
+"id": "redis-cloud",
+"nom": "redis-cloud",
+"image": "mcp/redis-cloud",
+"etat": "compte",
+"desc": "MCP Server for Redis Cloud's API, allowing you to manage your Redis Cloud resources using natural language."
+},
+{
+"id": "redshift-mcp-server",
+"nom": "awslabs-redshift",
+"image": "mcp/redshift-mcp-server",
+"etat": "compte",
+"desc": "Data warehouse operations and queries."
+},
+{
+"id": "ref-tools-mcp",
+"nom": "ref",
+"image": "mcp/ref-tools-mcp",
+"etat": "compte",
+"desc": "Ref powerful search tool connets your coding tools with documentation context. It includes an up-to-date index of public documentation and it can ing…"
+},
+{
+"id": "render",
+"nom": "render",
+"image": "mcp/render",
+"etat": "compte",
+"desc": "Interact with your Render resources via LLMs."
+},
+{
+"id": "resend",
+"nom": "resend",
+"image": "mcp/resend",
+"etat": "compte",
+"desc": "Resend"
+},
+{
+"id": "risken",
+"nom": "risken",
+"image": "mcp/risken",
+"etat": "compte",
+"desc": "RISKEN"
+},
+{
+"id": "s3-tables-mcp-server",
+"nom": "awslabs-s3-tables",
+"image": "mcp/s3-tables-mcp-server",
+"etat": "compte",
+"desc": "Manage S3 Tables for analytics."
+},
+{
+"id": "schemacrawler-ai",
+"nom": "schemacrawler-ai",
+"image": "mcp/schemacrawler-ai",
+"etat": "compte",
+"desc": "The SchemaCrawler AI MCP Server enables natural language interaction with your database schema using an MCP client in \"Agent\" mode. It allows users t…"
+},
+{
+"id": "scrapegraph",
+"nom": "scrapegraph",
+"image": "mcp/scrapegraph",
+"etat": "compte",
+"desc": "ScrapeGraph"
+},
+{
+"id": "scrapezy",
+"nom": "scrapezy",
+"image": "mcp/scrapezy",
+"etat": "compte",
+"desc": "A Model Context Protocol server for Scrapezy that enables AI models to extract structured data from websites."
+},
+{
+"id": "sentry",
+"nom": "sentry",
+"image": "mcp/sentry",
+"etat": "compte",
+"desc": "A Model Context Protocol server for retrieving and analyzing issues from Sentry.io. This server provides tools to inspect error reports, stacktraces,…"
+},
+{
+"id": "sequa",
+"nom": "sequa",
+"image": "mcp/sequa",
+"etat": "compte",
+"desc": "Stop stitching context for Copilot and Cursor. With Sequa MCP, your AI tools know your entire codebase and docs out of the box."
+},
+{
+"id": "singlestore",
+"nom": "singlestore",
+"image": "mcp/singlestore",
+"etat": "compte",
+"desc": "Singlestore"
+},
+{
+"id": "slack",
+"nom": "slack",
+"image": "mcp/slack",
+"etat": "compte",
+"desc": "Interact with Slack Workspaces over the Slack API."
+},
+{
+"id": "smartbear",
+"nom": "smartbear",
+"image": "mcp/smartbear",
+"etat": "compte",
+"desc": "MCP server for AI access to SmartBear tools, including BugSnag, Reflect, API Hub, PactFlow."
+},
+{
+"id": "sonarqube",
+"nom": "sonarqube",
+"image": "mcp/sonarqube",
+"etat": "compte",
+"desc": "Interact with SonarQube Cloud, Server and Community build over the web API. Analyze code to identify quality and security issues."
+},
+{
+"id": "stackgen",
+"nom": "stackgen",
+"image": "ghcr.io/stackgenhq/stackgen",
+"etat": "compte",
+"desc": "AI-powered DevOps assistant for managing cloud infrastructure and applications."
+},
+{
+"id": "stackhawk",
+"nom": "stackhawk",
+"image": "mcp/stackhawk",
+"etat": "compte",
+"desc": "A Model Context Protocol (MCP) server for integrating with StackHawk's security scanning platform. Provides security analytics, YAML configuration ma…"
+},
+{
+"id": "stripe",
+"nom": "stripe",
+"image": "mcp/stripe",
+"etat": "compte",
+"desc": "Interact with Stripe services over the Stripe API."
+},
+{
+"id": "suzieq-mcp",
+"nom": "suzieq",
+"image": "mcp/suzieq-mcp",
+"etat": "compte",
+"desc": "MCP Server to interact with a SuzieQ network observability instance via its REST API"
+},
+{
+"id": "tavily",
+"nom": "tavily",
+"image": "mcp/tavily",
+"etat": "compte",
+"desc": "The Tavily MCP server provides seamless interaction with the tavily-search and tavily-extract tools, real-time web search capabilities through the ta…"
+},
+{
+"id": "teamwork",
+"nom": "teamwork",
+"image": "mcp/teamwork",
+"etat": "compte",
+"desc": "Tools for Teamwork.com products."
+},
+{
+"id": "tembo",
+"nom": "tembo",
+"image": "mcp/tembo",
+"etat": "compte",
+"desc": "Tembo"
+},
+{
+"id": "temporal",
+"nom": "temporal",
+"image": "mcp/temporal",
+"etat": "compte",
+"desc": "Manage Temporal workflows, schedules, namespaces, task queues, and workflow execution history from MCP clients."
+},
+{
+"id": "testkube",
+"nom": "testkube",
+"image": "mcp/testkube",
+"etat": "compte",
+"desc": "The Testkube MCP Server exposes continuous testing capabilities (test orchestration, execution, troubleshooting and anlysis) to AI tools and workflows"
+},
+{
+"id": "text-to-graphql",
+"nom": "text-to-graphql",
+"image": "mcp/text-to-graphql",
+"etat": "compte",
+"desc": "Transform natural language queries into GraphQL queries using an AI agent. Provides schema management, query validation, execution, and history track…"
+},
+{
+"id": "thingsboard",
+"nom": "thingsboard",
+"image": "mcp/thingsboard",
+"etat": "compte",
+"desc": "Connect your AI workflows to the ThingsBoard IoT Platform through this MCP server. Enables LLMs to query device telemetry, manage IoT entities (devic…"
+},
+{
+"id": "tigris",
+"nom": "tigris",
+"image": "mcp/tigris",
+"etat": "compte",
+"desc": "Tigris is a globally distributed S3-compatible object storage service that provides low latency anywhere in the world, enabling developers to store a…"
+},
+{
+"id": "timestream-for-influxdb-mcp-server",
+"nom": "awslabs-timestream-for-influxdb",
+"image": "mcp/timestream-for-influxdb-mcp-server",
+"etat": "compte",
+"desc": "Time-series database operations."
+},
+{
+"id": "triplewhale",
+"nom": "triplewhale",
+"image": "mcp/triplewhale",
+"etat": "compte",
+"desc": "Triplewhale"
+},
+{
+"id": "uberall-mcp-server",
+"nom": "uberall",
+"image": "uberall/uberall-mcp-server",
+"etat": "compte",
+"desc": "Manage multi-location presence, including listings, reviews, and social posting, via uberall."
+},
+{
+"id": "unreal-engine-mcp-server",
+"nom": "unreal-engine-mcp-server",
+"image": "mcp/unreal-engine-mcp-server",
+"etat": "compte",
+"desc": "A comprehensive Model Context Protocol (MCP) server that enables AI assistants to control Unreal Engine via Remote Control API. Built with TypeScript…"
+},
+{
+"id": "valkey-mcp-server",
+"nom": "awslabs-valkey",
+"image": "mcp/valkey-mcp-server",
+"etat": "compte",
+"desc": "Advanced data structures with Valkey."
+},
+{
+"id": "vectra-ai-rux-mcp-server",
+"nom": "vectra-ai-rux-mcp-server",
+"image": "mcp/vectra-ai-rux-mcp-server",
+"etat": "compte",
+"desc": "Vectra AI MCP Server - An MCP server that connects AI assistants & agents to the Vectra AI security platform, enabling intelligent threat analysis an…"
+},
+{
+"id": "veyrax",
+"nom": "veyrax",
+"image": "mcp/veyrax",
+"etat": "compte",
+"desc": "VeyraX MCP is the only connection you need to access all your tools in any MCP-compatible environment."
+},
+{
+"id": "webflow",
+"nom": "webflow",
+"image": "mcp/webflow",
+"etat": "compte",
+"desc": "Webflow"
+},
+{
+"id": "wolfram-alpha",
+"nom": "wolfram-alpha",
+"image": "mcp/wolfram-alpha",
+"etat": "compte",
+"desc": "WolframAlpha"
+},
+{
+"id": "zen",
+"nom": "zen",
+"image": "mcp/zen",
+"etat": "compte",
+"desc": "Bridges multiple AI models and CLIs, enabling orchestrated workflows across Claude Code, Gemini CLI, Codex CLI, and other AI development tools."
+},
+{
+"id": "zerodha-kite",
+"nom": "zerodha-kite",
+"image": "mcp/zerodha-kite",
+"etat": "compte",
+"desc": "MCP server for Zerodha Kite Connect API - India's leading stock broker trading platform. Execute trades, manage portfolios, and access real-time mark…"
+},
+{
+"id": "zscaler-mcp-server",
+"nom": "zscaler-mcp-server",
+"image": "mcp/zscaler-mcp-server",
+"etat": "compte",
+"desc": "Manage the Zscaler Zero Trust Exchange platform via 300+ tools across ZPA (private access), ZIA (internet access), ZDX (digital experience), ZCC (cli…"
+},
+{
+"id": "aks",
+"nom": "aks",
+"image": "mcp/aks",
+"etat": "autre",
+"desc": "Azure Kubernetes Service (AKS) official MCP server"
+},
+{
+"id": "amazon-bedrock-agentcore-mcp-server",
+"nom": "amazon-bedrock-agentcore",
+"image": "mcp/amazon-bedrock-agentcore-mcp-server",
+"etat": "autre",
+"desc": "Documentation on AgentCore platform services."
+},
+{
+"id": "arm-mcp",
+"nom": "arm-mcp",
+"image": "armlimited/arm-mcp:2.4.0",
+"etat": "autre",
+"desc": "Provides AI assistants with specialized tools for Arm architecture development, migration, optimization, and profiling. Includes knowledge base searc…"
+},
+{
+"id": "ast-grep",
+"nom": "ast-grep",
+"image": "mcp/ast-grep",
+"etat": "autre",
+"desc": "ast-grep is a fast and polyglot tool for code structural search, lint, rewriting at large scale."
+},
+{
+"id": "aws-cdk-mcp-server",
+"nom": "aws-cdk-mcp-server",
+"image": "mcp/aws-cdk-mcp-server",
+"etat": "autre",
+"desc": "AWS Cloud Development Kit (CDK) best practices, infrastructure as code patterns, and security compliance with CDK Nag."
+},
+{
+"id": "aws-core-mcp-server",
+"nom": "aws-core-mcp-server",
+"image": "mcp/aws-core-mcp-server",
+"etat": "autre",
+"desc": "Starting point for using the awslabs MCP servers."
+},
+{
+"id": "aws-diagram",
+"nom": "aws-diagram",
+"image": "mcp/aws-diagram",
+"etat": "autre",
+"desc": "Seamlessly create diagrams using the Python diagrams package DSL. This server allows you to generate AWS diagrams, sequence diagrams, flow diagrams, …"
+},
+{
+"id": "aws-terraform",
+"nom": "aws-terraform",
+"image": "mcp/aws-terraform",
+"etat": "autre",
+"desc": "Terraform on AWS best practices, infrastructure as code patterns, and security compliance with Checkov"
+},
+{
+"id": "azure-mcp",
+"nom": "azure",
+"image": "mcr.microsoft.com/azure-sdk/azure-mcp",
+"etat": "autre",
+"desc": "Azure"
+},
+{
+"id": "databutton",
+"nom": "databutton",
+"image": "mcp/databutton",
+"etat": "autre",
+"desc": "Databutton"
+},
+{
+"id": "desktop-commander",
+"nom": "desktop-commander",
+"image": "mcp/desktop-commander",
+"etat": "autre",
+"desc": "Search, update, manage files and run terminal commands with AI"
+},
+{
+"id": "dotnet-types-explorer-mcp",
+"nom": "dotnet-types-explorer",
+"image": "vrogozhin/dotnet-types-explorer-mcp:1.1.7",
+"etat": "autre",
+"desc": "Provides detailed type information from .NET projects including assembly exploration, namespace discovery, type reflection, and NuGet integration for…"
+},
+{
+"id": "filesystem",
+"nom": "filesystem",
+"image": "mcp/filesystem",
+"etat": "autre",
+"desc": "Local filesystem access with configurable allowed paths"
+},
+{
+"id": "git",
+"nom": "git",
+"image": "mcp/git",
+"etat": "autre",
+"desc": "Git repository interaction and automation."
+},
+{
+"id": "hoverfly-mcp-server",
+"nom": "hoverfly-mcp-server",
+"image": "kapish88/hoverfly-mcp-server",
+"etat": "autre",
+"desc": "A Model Context Protocol (MCP) server that exposes Hoverfly as a programmable tool for AI assistants like Cursor, Claude, GitHub Copilot, and others …"
+},
+{
+"id": "inspektor-gadget",
+"nom": "inspektor-gadget",
+"image": "mcp/inspektor-gadget",
+"etat": "autre",
+"desc": "AI interface to troubleshoot and observe Kubernetes/Container workloads"
+},
+{
+"id": "kubectl-mcp-server",
+"nom": "kubectl-mcp-server",
+"image": "mcp/kubectl-mcp-server",
+"etat": "autre",
+"desc": "MCP Server that enables AI assistants to interact with Kubernetes clusters via kubectl operations."
+},
+{
+"id": "kubernetes",
+"nom": "kubernetes",
+"image": "mcp/kubernetes",
+"etat": "autre",
+"desc": "Connect to a Kubernetes cluster and manage it"
+},
+{
+"id": "markdownify",
+"nom": "markdownify",
+"image": "mcp/markdownify",
+"etat": "autre",
+"desc": "A Model Context Protocol server for converting almost anything to Markdown."
+},
+{
+"id": "maven-tools-mcp",
+"nom": "maven-tools-mcp",
+"image": "arvindand/maven-tools-mcp:latest",
+"etat": "autre",
+"desc": "JVM dependency intelligence for any build tool using Maven Central Repository. Includes Context7 integration for upgrade documentation and guidance."
+},
+{
+"id": "mcp-code-interpreter",
+"nom": "mcp-code-interpreter",
+"image": "mcp/mcp-code-interpreter",
+"etat": "autre",
+"desc": "A Python-based execution tool that mimics a Jupyter notebook environment. It accepts code snippets, executes them, and maintains state across session…"
+},
+{
+"id": "mcp-playwright",
+"nom": "playwright-mcp-server",
+"image": "mcp/mcp-playwright",
+"etat": "autre",
+"desc": "Playwright Model Context Protocol Server - Tool to automate Browsers and APIs in Claude Desktop, Cline, Cursor IDE and More 🔌"
+},
+{
+"id": "mcp-python-refactoring",
+"nom": "mcp-python-refactoring",
+"image": "mcp/mcp-python-refactoring",
+"etat": "autre",
+"desc": "Educational Python refactoring assistant that provides guided suggestions for AI assistants."
+},
+{
+"id": "mcp-server",
+"nom": "simplechecklist",
+"image": "mayurkakade/mcp-server:latest",
+"etat": "autre",
+"desc": "Advanced SimpleCheckList with MCP server and SQLite database for comprehensive task management. Features: • Complete project and task management syst…"
+},
+{
+"id": "multiversx-mx",
+"nom": "multiversx-mx",
+"image": "mcp/multiversx-mx",
+"etat": "autre",
+"desc": "MultiversX"
+},
+{
+"id": "next-devtools-mcp",
+"nom": "next-devtools-mcp",
+"image": "mcp/next-devtools-mcp",
+"etat": "autre",
+"desc": "next-devtools-mcp is a Model Context Protocol (MCP) server that provides Next.js development tools and utilities for AI coding assistants."
+},
+{
+"id": "node-code-sandbox",
+"nom": "node-code-sandbox",
+"image": "mcp/node-code-sandbox",
+"etat": "autre",
+"desc": "Node.js Sandbox"
+},
+{
+"id": "openapi-schema",
+"nom": "openapi-schema",
+"image": "mcp/openapi-schema",
+"etat": "autre",
+"desc": "OpenAPI Schema"
+},
+{
+"id": "playwright",
+"nom": "playwright",
+"image": "mcp/playwright",
+"etat": "autre",
+"desc": "Playwright"
+},
+{
+"id": "pref-editor",
+"nom": "pref-editor",
+"image": "mcp/pref-editor",
+"etat": "autre",
+"desc": "Pref Editor is a tool for viewing and editing Android app preferences during development."
+},
+{
+"id": "puppeteer",
+"nom": "puppeteer",
+"image": "mcp/puppeteer",
+"etat": "autre",
+"desc": "Browser automation and web scraping using Puppeteer."
+},
+{
+"id": "ramparts",
+"nom": "ramparts",
+"image": "mcp/ramparts",
+"etat": "autre",
+"desc": "A comprehensive security scanner for MCP servers with YARA rules and static analysis capabilities."
+},
+{
+"id": "ros2",
+"nom": "ros2",
+"image": "mcp/ros2",
+"etat": "autre",
+"desc": "Python server implementing Model Context Protocol (MCP) for ROS2."
+},
+{
+"id": "rust-mcp-filesystem",
+"nom": "rust-mcp-filesystem",
+"image": "mcp/rust-mcp-filesystem",
+"etat": "autre",
+"desc": "The Rust MCP Filesystem is a high-performance, asynchronous, and lightweight Model Context Protocol (MCP) server built in Rust for secure and efficie…"
+},
+{
+"id": "schogini_mcp_image_border",
+"nom": "schogini-mcp-image-border",
+"image": "mcp/schogini_mcp_image_border",
+"etat": "autre",
+"desc": "This adds a border to an image and returns base64 encoded image"
+},
+{
+"id": "securenote-link-mcp-server",
+"nom": "securenote-link-mcp-server",
+"image": "mcp/securenote-link-mcp-server",
+"etat": "autre",
+"desc": "SecureNote.link MCP Server - allowing AI agents to securely share sensitive information through end-to-end encrypted notes."
+},
+{
+"id": "sqlite-mcp-server",
+"nom": "sqlite-mcp-server",
+"image": "mcp/sqlite-mcp-server",
+"etat": "autre",
+"desc": "The SQLite MCP Server transforms SQLite into a powerful, AI-ready database engine. It combines standard relational operations with advanced analytics…"
+},
+{
+"id": "task-orchestrator",
+"nom": "task-orchestrator",
+"image": "ghcr.io/jpicklyk/task-orchestrator",
+"etat": "autre",
+"desc": "Model Context Protocol (MCP) server for comprehensive task and feature management, providing AI assistants with a structured, context-efficient way t…"
+},
+{
+"id": "vizro",
+"nom": "vizro",
+"image": "mcp/vizro",
+"etat": "autre",
+"desc": "provides tools and templates to create a functioning Vizro chart or dashboard step by step"
+}
+]
+}

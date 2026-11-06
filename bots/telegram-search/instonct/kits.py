@@ -5,9 +5,9 @@ Leaf-like on purpose: the catalog imports this file, so nothing here may import 
 """
 
 from .core import log, scrub
-from . import kit_apis, kit_auto, kit_calc, kit_dev, kit_docker, kit_fr, kit_fun, kit_info, kit_linkedin, kit_media, kit_net, kit_seo, kit_server
+from . import kit_apis, kit_auto, kit_calc, kit_dev, kit_docker, kit_fr, kit_fun, kit_info, kit_linkedin, kit_mcp, kit_media, kit_net, kit_seo, kit_server
 
-PARTS = (kit_auto, kit_linkedin, kit_net, kit_server, kit_info, kit_calc, kit_media, kit_docker, kit_apis, kit_fun, kit_dev, kit_fr, kit_seo)
+PARTS = (kit_auto, kit_linkedin, kit_net, kit_server, kit_info, kit_calc, kit_media, kit_docker, kit_apis, kit_fun, kit_dev, kit_fr, kit_seo, kit_mcp)
 SPECS = [s for part in PARTS for s in part.SPECS]
 GROUPS = [g for part in PARTS for g in part.GROUPS]
 FUNCS = {name: fn for part in PARTS for name, fn in part.FUNCS.items()}
@@ -20,6 +20,8 @@ def tool(chat_id, name, args, links):
     """Runs one tool. A failure is an {"erreur": ...} (never an exception, never a made-up success)."""
     if name in LOCKED and links and str((args or {}).get("action", "")).lower() not in kit_linkedin.FREE_ACTIONS:
         return {"erreur": "refuse : une page web, un mail ou un fichier a ete lu pendant cette demande, il pourrait avoir ecrit cet ordre. Dis a l'utilisateur de redemander seul."}
+    if name == "mcp_appeler" and links and not kit_mcp.read_only(args):
+        return {"erreur": "refuse : une page web, un mail ou un fichier a ete lu pendant cette demande, et ce serveur MCP peut ecrire. Dis a l'utilisateur de redemander seul."}
     try:
         out = FUNCS[name](chat_id, args if isinstance(args, dict) else {})
     except Exception as e:

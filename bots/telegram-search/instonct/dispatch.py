@@ -33,14 +33,21 @@ def _run_tool(chat_id, name, args, links):
             return demarche.tool(chat_id, name, args, links)
         if name in monde.NAMES:
             return monde.tool(name, args, links)
-        from . import kits                      # lazy: kits reaches modules that import this one
+        from . import kit_mcp, kits             # lazy: kits reaches modules that import this one
         if name in kits.NAMES:
             return kits.tool(chat_id, name, args, links)
         if name == "chercher_outil":
-            found = catalog.find_tools(str(args.get("besoin", "")))
-            if not found:
+            need = str(args.get("besoin", ""))
+            found = catalog.find_tools(need)
+            added = [{"nom": x["function"]["name"], "sert_a": x["function"].get("description", "")[:110]} for x in found]
+            servers = kit_mcp.match(need)                  # open-source MCP servers that fit: the three mcp_* tools come with them
+            if servers:
+                have = {x["nom"] for x in added}
+                added += [{"nom": x["function"]["name"], "sert_a": x["function"].get("description", "")[:110]}
+                          for x in catalog.every_tool() if x["function"]["name"] in kit_mcp.FUNCS and x["function"]["name"] not in have]
+            if not added:
                 return {"erreur": "aucun outil ne correspond : essaie run_command, python_run, browser, fetch_url ou http_request pour le faire toi-meme"}
-            return {"outils_ajoutes": [{"nom": x["function"]["name"], "sert_a": x["function"].get("description", "")[:110]} for x in found],
+            return {"outils_ajoutes": added, **({"serveurs_mcp": servers} if servers else {}),
                     "suite": "ils sont disponibles maintenant : appelle le bon tout de suite"}
         if name == "show_remote":
             television.send_remote(chat_id)

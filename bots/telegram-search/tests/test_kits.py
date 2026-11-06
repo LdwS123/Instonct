@@ -48,6 +48,9 @@ SAYINGS = {
     "automatisation": "cree une automatisation pour eteindre la tele chaque soir", "scene": "lance la scene film", "silence_nuit": "active le mode silence la nuit",
     "linkedin_inviter": "ajoute 30 YC founders sur LinkedIn avec une note",
     "nutrition": "nutri-score du produit 3017620422003", "image_libre": "cherche une image libre de droits de la tour eiffel",
+    # open-source MCP servers
+    "mcp_serveurs": "quels outils open source mcp tu as", "mcp_outils": "liste les outils du serveur mcp wikipedia",
+    "mcp_appeler": "utilise le serveur mcp wikipedia pour chercher paris",
 }
 
 
