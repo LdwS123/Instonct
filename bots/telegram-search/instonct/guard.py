@@ -37,6 +37,7 @@ _VERBS = {
     "auto_change": r"\bpause|\bsuspend|\bdesactive|\breprend|\breprise|\breactive|\bactive|\barrete|\bstop|\bcoupe|\brelance",
     "auto_run": r"\blance|\bexecute|\bdeclenche|\bteste|\bessaie|\bfais|\bmets?\b|\bdemarre",
     "scene_run": r"\blance|\bmets?\b|\bmettre|\bactive|\bdemarre|\bfais|\bmode\b|\bscene|\bambiance|\bexecute|\bpasse",
+    "linkedin_invite": r"\bajoute|\binvit|\bcontacte|\benvoie|\bdemande|\bfais|\blance|\brelation|\breseau|\bautomat|\bmets?\b|\bscrape|\bpropose",
     "silence": r"\bsilence|\bsilencieux|\bmuet|\bchut\b|\bne parle|\bcalme|\bdiscret|\bnuit|\bbruit|\bactive|\bdesactive|\bcoupe|\bmets?\b|\bremets?\b|\breparle|\brevoix",
 }
 MAIL_ACTIONS = ("delete", "spam", "archive", "read", "unread", "star", "unstar")

@@ -87,6 +87,11 @@ def active():
 def stop():
     st = _load()
     if st:
+        if st.get("guard"):
+            try:
+                os.killpg(int(st["guard"]), signal.SIGTERM)     # its pids are gone: it must not close a later screen
+            except Exception:
+                pass
         _kill_all(st)
     try:
         os.remove(STATE)
@@ -107,6 +112,30 @@ def expire():
         stop()
         return True
     return False
+
+
+def _guard(pids, minutes):
+    """Safety net that does not depend on the bot: closes everything after the time is over, even if the bot is restarted. Returns its pid."""
+    p = subprocess.Popen(["sh", "-c", f"sleep {int(minutes * 60) + 30}; " + " ".join(f"kill {pid} 2>/dev/null;" for pid in pids) + f" rm -f {STATE}"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    return p.pid
+
+
+def extend(minutes):
+    """Keeps an open screen alive for `minutes` more from now (a long job is running in it). False if nothing is open or it cannot be extended safely."""
+    st = _load()
+    if not st or not st.get("guard") or not any(_alive(p) for p in st.get("pids", [])):
+        return False
+    try:
+        os.killpg(int(st["guard"]), signal.SIGTERM)             # the old safety net would close the screen too early
+    except Exception:
+        pass
+    minutes = max(1, min(int(minutes), MAX_MINUTES))
+    st["until"] = time.time() + minutes * 60
+    st["guard"] = _guard(st["pids"], minutes)
+    with open(STATE, "w") as f:
+        json.dump(st, f)
+    return True
 
 
 def start(minutes=15, url="https://www.linkedin.com/login"):
@@ -153,7 +182,7 @@ def start(minutes=15, url="https://www.linkedin.com/login"):
     with open(STATE, "w") as f:
         json.dump(st, f)
     os.chmod(STATE, 0o600)
-    # safety net that does not depend on the bot: closes everything even if the bot is restarted
-    subprocess.Popen(["setsid", "sh", "-c", f"sleep {minutes * 60 + 30}; " + " ".join(f"kill {p} 2>/dev/null;" for p in pids) + f" rm -f {STATE}"],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    st["guard"] = _guard(pids, minutes)
+    with open(STATE, "w") as f:
+        json.dump(st, f)
     return {"ok": True, "actif": True, "url": link, "mot_de_passe": pw, "reste_min": minutes}

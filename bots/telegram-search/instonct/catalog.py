@@ -56,7 +56,7 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}},
     {"name": "linkedin", "description": "LIT LinkedIn. action=jobs : offres d'emploi publiques, sans compte (keywords, location, days, limit). action=job : texte d'une offre (id). "
      "action=page : lit une page linkedin.com (url : profil, entreprise, post). action=search : cherche keywords avec kind=personnes, entreprises ou posts. page et search demandent que l'utilisateur se soit connecte lui-meme avec /connexion linkedin. "
-     "action=status. Lecture seule : tu ne postules pas, ne contactes personne et ne contournes jamais un blocage, tu le dis a l'utilisateur.",
+     "action=status. Lecture seule : tu ne postules pas et tu ne contournes jamais un blocage. Pour INVITER des gens avec une note : outil linkedin_inviter.",
      "parameters": {"type": "object", "properties": {"action": {"type": "string", "enum": ["jobs", "job", "page", "search", "status"]}, "keywords": {"type": "string"}, "location": {"type": "string"},
                     "days": {"type": "integer"}, "limit": {"type": "integer"}, "id": {"type": "string"}, "url": {"type": "string"}, "kind": {"type": "string"}}}},
     {"name": "mail_clean", "description": "NETTOIE la boite de reception : met a la corbeille toutes les pubs et newsletters (le tri protege les mails importants). "

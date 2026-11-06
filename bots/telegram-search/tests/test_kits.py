@@ -45,6 +45,7 @@ SAYINGS = {
     "elevation": "quelle est l'altitude de Grenoble", "marine": "etat de la mer a Marseille", "pollen": "niveau de pollen a Lyon",
     "meteo_historique": "meteo passee de Paris le 1er juillet", "space_launches": "les prochains lancements de fusees", "molecule": "formule chimique de la cafeine",
     "automatisation": "cree une automatisation pour eteindre la tele chaque soir", "scene": "lance la scene film", "silence_nuit": "active le mode silence la nuit",
+    "linkedin_inviter": "ajoute 30 YC founders sur LinkedIn avec une note",
     "nutrition": "nutri-score du produit 3017620422003", "image_libre": "cherche une image libre de droits de la tour eiffel",
 }
 
