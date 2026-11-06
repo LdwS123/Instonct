@@ -200,6 +200,8 @@ def test_after_reading_the_web_long_arguments_are_refused(fake):
     out = kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": json.dumps({"q": "x" * 400})}, links)
     assert "refuse" in out["erreur"] and "300" in out["erreur"]
     url = {"q": "https://a.fr/?" + "k=" + "v" * 300}
+    many = {"a": ["y" * 90] * 5}                                                                      # each string small, together too much
+    assert "refuse" in kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": json.dumps(many)}, links)["erreur"]
     assert "refuse" in kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": json.dumps(url)}, links)["erreur"]
     assert "refuse" in kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": "{pas json"}, links)["erreur"]
     assert "resultat" in kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": json.dumps({"q": "paris"})}, links)
@@ -220,8 +222,9 @@ def test_the_firewall_is_checked_before_every_start_not_only_the_first(monkeypat
     assert any(a[:2] == ("iptables", "-C") for a in seen)
 
 
-def test_a_server_that_floods_us_is_cut_off_and_unasked_output_is_dropped():
+def test_a_server_that_floods_us_is_cut_off_and_unasked_output_is_dropped(monkeypatch):
     from instonct import mcp_host
+    monkeypatch.setattr("instonct.mcp_host._sudo", lambda *a, **k: (0, ""))
     code = "import sys,time\nsys.stdin.readline()\nfor i in range(2000): print('{\"jsonrpc\":\"2.0\",\"method\":\"n\"}')\nsys.stdout.flush()\ntime.sleep(20)"
     quiet = mcp_host.Proc({"id": "x"}, [sys.executable, "-c", code], "x")
     quiet.send({"a": 1})
@@ -310,3 +313,19 @@ def test_the_mcp_tools_come_in_with_their_words_and_not_for_small_talk():
         assert {"mcp_serveurs", "mcp_appeler"} <= {t["function"]["name"] for t in catalog.select_tools(text)}, text
     for text in ("salut", "merci beaucoup", "mets la chaine 3"):
         assert not {t["function"]["name"] for t in catalog.select_tools(text)} & kit_mcp.FUNCS.keys(), text
+
+
+def test_cutting_a_server_removes_its_container_even_when_the_process_cannot_be_signalled(monkeypatch):
+    from instonct import mcp_host
+    calls = []
+    monkeypatch.setattr("instonct.mcp_host._sudo", lambda *a, **k: calls.append(a) or (0, ""))
+    proc = mcp_host.Proc({"id": "x"}, [sys.executable, "-c", "import time; time.sleep(30)"], "mcp_x")
+
+    def refuse(*a):
+        raise PermissionError("owned by root")
+    real_kill = proc.p.kill
+    proc.p.kill = refuse
+    proc.p.terminate = refuse
+    proc.close()                                                                                      # must not raise, must still remove the container
+    assert ("docker", "rm", "-f", "mcp_x") in calls
+    real_kill()

@@ -27,6 +27,7 @@ MAX_LIVE = 2
 IDLE_SECONDS = 150
 START_SECONDS = 60
 MAX_LINE = 4_000_000                       # one JSON message from a server
+MAX_BYTES = 16_000_000                     # everything a server may send while one request waits
 MIN_FREE_BYTES = 3 * 1024 ** 3             # no download below 3 GB of free disk
 _IMAGE = re.compile(r"[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9._-]+)?")
 _VOLUME = re.compile(r"mcp-[a-z0-9-]+:/[A-Za-z0-9/_.-]+")
@@ -152,6 +153,7 @@ class Proc:
         self.lock = threading.Lock()
         self.q = queue.Queue(maxsize=256)
         self.busy = False                                                     # True only while one of OUR requests waits for its answer
+        self.bytes = 0
         self.p = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -162,7 +164,7 @@ class Proc:
                 if not line:
                     break
                 if len(line) >= MAX_LINE and not line.endswith("\n"):          # a message bigger than any sane answer: cut the server off
-                    self.p.kill()
+                    self.cut()
                     break
                 try:
                     message = json.loads(line)
@@ -170,10 +172,13 @@ class Proc:
                     continue                                                  # a log line on stdout
                 if not self.busy:
                     continue                                                  # nobody asked: unsolicited output is dropped, not stored
+                self.bytes += len(line)
                 try:
+                    if self.bytes > MAX_BYTES:
+                        raise queue.Full
                     self.q.put_nowait(message)
-                except queue.Full:                                            # a server flooding us: cut it off
-                    self.p.kill()
+                except queue.Full:                                            # a server flooding us (messages or bytes): cut it off
+                    self.cut()
                     break
         finally:
             try:
@@ -181,12 +186,23 @@ class Proc:
             except queue.Full:
                 pass
 
+    def cut(self):
+        """Stops the server for good. The process we hold is `sudo`, owned by root, which we may not be allowed to signal: so the container itself is removed."""
+        try:
+            self.p.kill()
+        except OSError:
+            pass
+        try:
+            _sudo("docker", "rm", "-f", self.name, timeout=20)
+        except Exception:
+            pass
+
     def alive(self):
         return self.p.poll() is None
 
     def send(self, message):
         """Writes one line. A server that stops reading would block this forever, so a timer kills it if the write hangs."""
-        timer = threading.Timer(15, self.p.kill)
+        timer = threading.Timer(15, self.cut)
         timer.start()
         try:
             self.p.stdin.write(json.dumps(message) + "\n")
@@ -202,6 +218,7 @@ class Proc:
                 break
         self.n += 1
         mid = self.n
+        self.bytes = 0
         self.busy = True
         try:
             return self._rpc(mid, method, params, timeout)
@@ -243,11 +260,8 @@ class Proc:
             self.p.terminate()
             self.p.wait(timeout=4)
         except (subprocess.TimeoutExpired, OSError):
-            self.p.kill()
-        try:
-            _sudo("docker", "rm", "-f", self.name, timeout=20)
-        except Exception:
             pass
+        self.cut()
 
 
 def _forget(proc):

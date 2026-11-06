@@ -9,7 +9,6 @@ What a server answers is web content: mcp_appeler is TAINT, and a server that is
 
 import json
 import re
-from urllib.parse import urlparse
 
 from . import mcp_host
 from .core import norm
@@ -17,7 +16,7 @@ from .kit_base import spec, text
 
 TAINT = {"mcp_appeler"}
 TAINT_ALWAYS = {"mcp_appeler"}          # even a failed call: error messages carry text written by the server (kits.tool)
-MAX_FREE_TEXT = 300                     # after the turn read the web, no argument may carry more than this (data could leave through it)
+MAX_FREE_TEXT = 300                     # after the turn read the web, the arguments together may not carry more than this (data could leave through them)
 GROUPS = [
     (r"\bmcp\b|outils? open ?source|serveurs? mcp|wikipedia|youtube.*(?:transcri|sous.?titre)|(?:transcri|sous.?titre).*youtube|arxiv|pubmed|biorxiv|hacker ?news|airbnb|"
      r"google flights|\bvols?\b.*(?:prix|pas cher|google|aeroport)|minecraft|swagger|openapi|\bnpm\b|\bcve\b|\bnvd\b|terraform|sequentialthinking|"
@@ -98,7 +97,7 @@ def read_only(args):
 
 
 def leaky(args):
-    """True when, after the web was read, the arguments could carry stolen data out (a long string, or a long query string)."""
+    """True when, after the web was read, the arguments could carry stolen data out (too long altogether)."""
     entry = mcp_host.entries().get(text(args if isinstance(args, dict) else {}, "serveur", "", 60).lower()) or {}
     if entry.get("hors_ligne"):
         return False
@@ -106,15 +105,8 @@ def leaky(args):
     if bad:
         return True
 
-    def walk(v):
-        if isinstance(v, str):
-            return len(v) > MAX_FREE_TEXT or (v.lower().startswith(("http://", "https://")) and len(urlparse(v).query) > 200)
-        if isinstance(v, dict):
-            return any(walk(x) for x in v.values())
-        if isinstance(v, list):
-            return any(walk(x) for x in v)
-        return False
-    return walk(value)
+    return len(json.dumps(value, ensure_ascii=False)) > MAX_FREE_TEXT                 # the whole payload, keys included, not each string
+
 
 
 def _arguments(a):
