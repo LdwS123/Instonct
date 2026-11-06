@@ -20,7 +20,8 @@ def shop(tmp_path, monkeypatch):
         monkeypatch.setattr(mod, "WORK", str(work))
     state = types.SimpleNamespace(work=work, recus=recus, calls=[], sent=[], answers={}, home=str(tmp_path))
 
-    def fake_run(cmd, input=None, capture_output=True, timeout=None):
+    def fake_run(cmd, input=None, capture_output=True, timeout=None, env=None):
+        state.env = env
         assert cmd[:3] == ["nice", "-n", "10"], "every program runs at low priority"
         cmd = cmd[3:]
         if cmd[0] == "prlimit":
@@ -197,10 +198,17 @@ def test_schema_draws_dot_to_png_and_sends_it(shop):
 
 
 @pytest.mark.parametrize("code", ['digraph { A [image="/etc/passwd"] }', 'digraph { A [shapefile="/etc/shadow"] }', 'digraph { A [href="http://x"] }',
-                                  'digraph { A [label=<<img src="/etc/passwd"/>>] }', 'digraph { stylesheet="/x.css" }', 'digraph { fontpath="/etc" }'])
+                                  'digraph { A [label=<<img src="/etc/passwd"/>>] }', 'digraph { stylesheet="/x.css" }', 'digraph { fontpath="/etc" }',
+                                  'digraph { A ["ima"+"ge"="/etc/passwd"] }'])
 def test_schema_refuses_anything_that_reads_files_or_links(shop, code):
     assert "refuse" in kit_atelier.schema(1, {"code": code})["erreur"]
     assert not shop.calls
+
+
+def test_schema_runs_graphviz_in_server_mode_so_it_cannot_read_files_even_if_the_filter_is_fooled(shop):
+    shop.answers["dot"] = (0, b"\x89PNG" + b"0" * 50, b"")
+    kit_atelier.schema(1, {"code": "digraph { A -> B }"})
+    assert shop.env["SERVER_NAME"] and shop.env["GV_FILE_PATH"] == "/nonexistent"
 
 
 def test_schema_engine_whitelist_and_bad_code(shop):

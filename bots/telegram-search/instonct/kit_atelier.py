@@ -45,13 +45,13 @@ GROUPS = [
 ]
 
 
-def _run(cmd, timeout=60, stdin=None, memory=False):
+def _run(cmd, timeout=60, stdin=None, memory=False, env=None):
     """Run a program with low priority (and, if asked, a memory ceiling). Returns (ok, stdout, stderr)."""
     prefix = ["nice", "-n", "10"]
     if memory:
         prefix += ["prlimit", f"--as={LIMIT_BYTES}", "--cpu=%d" % max(10, timeout)]
     try:
-        r = subprocess.run(prefix + cmd, input=stdin, capture_output=True, timeout=timeout)
+        r = subprocess.run(prefix + cmd, input=stdin, capture_output=True, timeout=timeout, **({"env": env} if env else {}))
     except subprocess.TimeoutExpired:
         return False, b"", b"trop long"
     except OSError as e:
@@ -197,7 +197,8 @@ def qr_lire(chat_id, a):
 
 # ---- schema -------------------------------------------------------------------------------------------------------------------------------------
 
-DOT_FORBIDDEN = re.compile(r"image|shapefile|fontpath|imagepath|<\s*img|src\s*=|stylesheet|xlink|url\s*=|href|\bsystem\b|\bimport\b|\\\\|[\x00-\x08]", re.I)
+GV_SAFE_ENV = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "SERVER_NAME": "atelier", "GV_FILE_PATH": "/nonexistent"}      # Graphviz "server mode": it refuses to read any file outside GV_FILE_PATH
+DOT_FORBIDDEN = re.compile(r"\+|image|shapefile|fontpath|imagepath|<\s*img|src\s*=|stylesheet|xlink|url\s*=|href|\bsystem\b|\bimport\b|\\\\|[\x00-\x08]", re.I)
 ENGINES = ("dot", "neato", "circo", "fdp", "twopi")
 
 
@@ -210,7 +211,7 @@ def schema(chat_id, a):
         return {"erreur": "il faut du code DOT, ex: digraph { A -> B }"}
     if DOT_FORBIDDEN.search(code):
         return {"erreur": "ce schema demande de lire des fichiers ou des liens : refuse. Garde juste des noeuds et des fleches."}
-    ok, out, err = _run([engine, "-Tpng", "-Gdpi=110", "-Gcharset=utf-8"], 25, stdin=code.encode(), memory=True)
+    ok, out, err = _run([engine, "-Tpng", "-Gdpi=110", "-Gcharset=utf-8"], 25, stdin=code.encode(), memory=True, env=GV_SAFE_ENV)
     if not ok or not out.startswith(b"\x89PNG"):
         return {"erreur": "code DOT invalide : " + _plain(err, 160)}
     os.makedirs(WORK, exist_ok=True)
