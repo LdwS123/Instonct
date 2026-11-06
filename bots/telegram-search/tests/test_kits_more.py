@@ -557,19 +557,16 @@ PAGE = b"""<html lang="fr"><head><title>Titre court</title><meta name="descripti
 <script>var ignore = "beaucoup de mots dans un script qui ne comptent pas";</script><p>quelques mots lisibles ici</p></body></html>"""
 
 
-class FakeRaw:
-    def __init__(self, data):
-        self.data = data
-
-    def read(self, n, decode_content=True):
-        return self.data[:n]
-
-
 class Page:
-    status_code, encoding = 200, "utf-8"
+    """A fake response: 200, no redirect, body served in small chunks."""
+    status_code, encoding, is_redirect = 200, "utf-8", False
 
-    def __init__(self, data=PAGE):
-        self.raw = FakeRaw(data)
+    def __init__(self, data=PAGE, headers=None, code=200):
+        self.data, self.headers, self.status_code = data, headers or {}, code
+
+    def iter_content(self, size):
+        for n in range(0, len(self.data), size):
+            yield self.data[n:n + size]
 
     def close(self):
         pass
@@ -577,19 +574,38 @@ class Page:
 
 def test_seo_audit_reads_the_page_and_lists_the_problems(monkeypatch):
     from instonct import kit_seo
+    seen = []
     monkeypatch.setattr("instonct.web.url_ok", lambda u: True)
-    monkeypatch.setattr(kit_seo.requests, "get", lambda url, **k: Page() if url.endswith("exemple.fr") else type("R", (), {"status_code": 404})())
+    monkeypatch.setattr("instonct.web.requests.get", lambda url, **k: seen.append((url, k)) or (Page() if url.endswith("exemple.fr") else Page(b"", code=404)))
     out = kit_seo.seo_audit(1, {"url": "exemple.fr"})
     assert out["title"] == "Titre court" and out["description"] == "Une description" and out["h1"] == ["Bonjour", "Deux"]
     assert out["images"] == 2 and out["liens_internes"] == 1 and out["liens_externes"] == 1 and out["balises_og"] == 1
     assert out["mots"] < 40                                     # the script text is not counted
     problems = " ".join(out["problemes"])
     assert "2 h1" in problems and "1 image(s) sur 2" in problems and "robots.txt : code 404" in problems and "JSON-LD" in problems and "title de 11" in problems
+    assert all(k["allow_redirects"] is False for _, k in seen)    # every hop is checked by hand
+    assert seen[0][1]["headers"]["Accept-Encoding"] == "identity"
 
 
-def test_seo_audit_refuses_private_hosts(monkeypatch):
+def test_seo_audit_refuses_private_hosts_userinfo_and_private_redirects(monkeypatch):
     from instonct import kit_seo
     assert "publics" in kit_seo.seo_audit(1, {"url": "http://192.168.1.64:8888"})["erreur"]
+    assert "publics" in kit_seo.seo_audit(1, {"url": "https://exemple.fr@192.168.1.64/"})["erreur"]
+    monkeypatch.setattr("instonct.web.url_ok", lambda u: "exemple.fr" in u)           # the redirect target is a private address
+    redirect = Page(b"")
+    redirect.is_redirect, redirect.headers = True, {"location": "http://192.168.1.64:8888/"}
+    monkeypatch.setattr("instonct.web.requests.get", lambda url, **k: redirect)
+    assert "illisible" in kit_seo.seo_audit(1, {"url": "exemple.fr"})["erreur"]
+
+
+def test_seo_audit_refuses_a_compressed_body_and_caps_the_size(monkeypatch):
+    from instonct import kit_seo
+    monkeypatch.setattr("instonct.web.url_ok", lambda u: True)
+    monkeypatch.setattr("instonct.web.requests.get", lambda url, **k: Page(headers={"Content-Encoding": "gzip"}))
+    assert "compressee" in kit_seo.seo_audit(1, {"url": "exemple.fr"})["erreur"]
+    big = Page(b"<html><body>" + b"mot " * 400_000)
+    monkeypatch.setattr("instonct.web.requests.get", lambda url, **k: big)
+    assert kit_seo.seo_audit(1, {"url": "exemple.fr"})["ko"] <= kit_seo.MAX_BYTES // 1000
 
 
 def test_seo_ideas_are_deduplicated_and_questions_split(monkeypatch):

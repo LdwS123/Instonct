@@ -8,6 +8,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 import requests
 
@@ -25,7 +26,7 @@ GROUPS = [
     (r"\bseo\b|(?:position|classe|rang).*(?:google|recherche|resultats)|(?:google|resultats).*(?:position|classe)|premiere page", {"seo_position"}),
 ]
 TAINT = {s["name"] for s in SPECS}
-MAX_BYTES = 600_000
+MAX_BYTES, READ_SECONDS = 600_000, 15
 
 
 class _Page(HTMLParser):
@@ -85,27 +86,47 @@ class _Page(HTMLParser):
 
 
 def _status(url):
+    """The status code of a public URL, without reading its body (0 when it cannot be reached or is not public)."""
     try:
-        r = requests.get(url, headers=AGENT, timeout=8, allow_redirects=False)
+        r = web.safe_get(url, timeout=8, stream=True, headers=AGENT)
+        r.close()
         return r.status_code
-    except requests.RequestException:
+    except (ValueError, requests.RequestException):
         return 0
+
+
+def _read(url):
+    """(response, body, ms) of a public page. Every redirect is checked (web.safe_get), the body is read as it comes with a size and time limit, never decompressed."""
+    t0 = time.time()
+    r = web.safe_get(url, timeout=15, stream=True, headers={**AGENT, "Accept-Encoding": "identity"})
+    try:
+        if (r.headers.get("Content-Encoding") or "identity").lower() != "identity":
+            raise ValueError("page compressee refusee")
+        body = b""
+        for chunk in r.iter_content(8192):
+            body += chunk
+            if len(body) >= MAX_BYTES or time.time() - t0 > READ_SECONDS:
+                break
+    finally:
+        r.close()
+    return r, body[:MAX_BYTES], int((time.time() - t0) * 1000)
 
 
 def seo_audit(chat_id, a):
     url = text(a, "url")
     url = url if "://" in url else "https://" + url
-    host = host_of(url)
-    if not host or not web.url_ok(url):
+    parts = urlparse(url)
+    if not parts.hostname or parts.username or parts.password or not web.url_ok(url):
         return {"erreur": "seulement les sites publics"}
-    t0 = time.time()
-    r = requests.get(url, headers=AGENT, timeout=15, stream=True)
-    body = r.raw.read(MAX_BYTES, decode_content=True)
-    r.close()
-    ms = int((time.time() - t0) * 1000)
+    try:
+        r, body, ms = _read(url)
+    except (ValueError, requests.RequestException) as e:
+        return {"erreur": f"page illisible : {str(e)[:120]}"}
+    final = urlparse(r.final_url)
+    host, root = final.hostname, f"{final.scheme}://{final.hostname}"
     page = _Page(host)
     page.feed(body.decode(r.encoding or "utf-8", "replace"))
-    title, root = clean(page.title, 200), "https://" + host
+    title = clean(page.title, 200)
     robots, sitemap = _status(root + "/robots.txt"), _status(root + "/sitemap.xml")
     problems = []
     if not title:
