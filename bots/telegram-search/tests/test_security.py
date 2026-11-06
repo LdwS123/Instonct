@@ -157,3 +157,9 @@ def test_telegram_calls_do_not_hang_on_a_dead_connection(monkeypatch):
     tg("sendMessage", chat_id=1, text="y")
     assert tg_net.closed == before + 1
     assert any(o[1] == socket.SO_KEEPALIVE for o in _keepalive_options())
+
+
+def test_every_request_uses_ipv4_because_ipv6_to_telegram_hangs():
+    import urllib3.util.connection as conn
+    from instonct import core as _core  # noqa: F401  (importing it installs the setting)
+    assert conn.allowed_gai_family() == socket.AF_INET

@@ -8,6 +8,7 @@ import unicodedata
 
 import redis
 import requests
+import urllib3.util.connection
 
 from .optional import whatsapp
 from .config import GEMINI_KEY, LLM2_API_KEY, LLM3_API_KEY, LLM_API_KEY, STT_API_KEY, TG, TOKEN
@@ -28,6 +29,11 @@ def scrub(e):
         if secret:
             s = s.replace(secret, "***")
     return s
+
+
+# The Mac mini's IPv6 route to Telegram randomly hangs (1 connection in ~15 never opens, measured 2026-11-06); IPv4 never failed.
+# urllib3 tries IPv6 first and would wait the whole timeout, so every request of the bot uses IPv4 only.
+urllib3.util.connection.allowed_gai_family = lambda: socket.AF_INET
 
 
 def _keepalive_options():
