@@ -192,7 +192,48 @@ def test_what_a_server_says_marks_the_conversation_as_read_from_the_web(fake):
     assert links == ["(page web)"]
     links = []
     kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "boom"}, links)
-    assert links == []                                                                                # a failure says nothing
+    assert links == ["(page web)"]                                                                    # a failure too: error text is written by the server
+
+
+def test_after_reading_the_web_long_arguments_are_refused(fake):
+    links = ["https://exemple.fr"]
+    out = kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": json.dumps({"q": "x" * 400})}, links)
+    assert "refuse" in out["erreur"] and "300" in out["erreur"]
+    url = {"q": "https://a.fr/?" + "k=" + "v" * 300}
+    assert "refuse" in kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": json.dumps(url)}, links)["erreur"]
+    assert "refuse" in kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": "{pas json"}, links)["erreur"]
+    assert "resultat" in kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": json.dumps({"q": "paris"})}, links)
+    assert "resultat" in kits.tool(1, "mcp_appeler", {"serveur": "alpha", "outil": "echo", "arguments": json.dumps({"q": "x" * 400})}, [])   # nothing read: fine
+
+
+def test_the_firewall_is_checked_before_every_start_not_only_the_first(monkeypatch):
+    from instonct import mcp_host
+    monkeypatch.setitem(mcp_host._net, "ok", True)                         # an earlier start succeeded...
+    seen = []
+
+    def fake_sudo(*args, timeout=30):
+        seen.append(args)
+        return (1, "flushed") if args[:2] == ("iptables", "-C") or args[:2] == ("iptables", "-I") else (0, "")
+    monkeypatch.setattr("instonct.mcp_host._sudo", fake_sudo)
+    with pytest.raises(RuntimeError, match="pare-feu"):                  # ...but the rules were flushed since: no start
+        mcp_host.ensure_network()
+    assert any(a[:2] == ("iptables", "-C") for a in seen)
+
+
+def test_a_server_that_floods_us_is_cut_off_and_unasked_output_is_dropped():
+    from instonct import mcp_host
+    code = "import sys,time\nsys.stdin.readline()\nfor i in range(2000): print('{\"jsonrpc\":\"2.0\",\"method\":\"n\"}')\nsys.stdout.flush()\ntime.sleep(20)"
+    quiet = mcp_host.Proc({"id": "x"}, [sys.executable, "-c", code], "x")
+    quiet.send({"a": 1})
+    time.sleep(1.5)
+    assert quiet.q.qsize() <= 1                                           # nobody asked: nothing stored (only the end marker at most)
+    quiet.p.kill()
+    loud = mcp_host.Proc({"id": "x"}, [sys.executable, "-c", code], "x")
+    loud.busy = True
+    loud.send({"a": 1})
+    time.sleep(1.5)
+    assert loud.q.qsize() <= 256 and not loud.alive()                     # bounded, and the flooding server was killed
+
 
 
 def test_the_docker_command_line_is_locked_and_holds_no_text_from_the_user():

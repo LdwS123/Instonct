@@ -78,24 +78,25 @@ def _rules():
 
 
 def ensure_network():
-    """The isolated network and its firewall rules exist (idempotent, re-applied after a reboot). Raises if a rule cannot be proven."""
-    if _net["ok"]:
-        return
-    rc, _ = _sudo("docker", "network", "inspect", NETWORK)
-    if rc != 0:
-        rc, out = _sudo("docker", "network", "create", "--driver", "bridge", "--subnet", SUBNET, "-o", f"com.docker.network.bridge.name={BRIDGE}",
-                        "-o", "com.docker.network.bridge.enable_icc=false", NETWORK)
+    """The isolated network exists and every firewall rule is proven present (re-added if missing). Raises if a rule cannot be proven."""
+    first = not _net["ok"]
+    if first:
+        rc, _ = _sudo("docker", "network", "inspect", NETWORK)
         if rc != 0:
-            raise RuntimeError("reseau isole impossible : " + out[:120])
-    for chain, rule in _rules():
+            rc, out = _sudo("docker", "network", "create", "--driver", "bridge", "--subnet", SUBNET, "-o", f"com.docker.network.bridge.name={BRIDGE}",
+                            "-o", "com.docker.network.bridge.enable_icc=false", NETWORK)
+            if rc != 0:
+                raise RuntimeError("reseau isole impossible : " + out[:120])
+    for chain, rule in _rules():                                    # checked before EVERY container start (someone may have flushed iptables since)
         if _sudo("iptables", "-C", chain, *rule)[0] != 0:
             rc, out = _sudo("iptables", "-I", chain, "1", *rule)
             if rc != 0 or _sudo("iptables", "-C", chain, *rule)[0] != 0:
                 raise RuntimeError("pare-feu impossible : " + out[:120])
-    _, stale = _sudo("docker", "ps", "-aq", "--filter", "label=instonct=mcp")      # leftovers of a previous run of the bot
-    for cid in stale.split():
-        _sudo("docker", "rm", "-f", cid)
-    _net["ok"] = True
+    if first:
+        _, stale = _sudo("docker", "ps", "-aq", "--filter", "label=instonct=mcp")      # leftovers of a previous run of the bot
+        for cid in stale.split():
+            _sudo("docker", "rm", "-f", cid)
+        _net["ok"] = True
 
 
 def argv(entry, name):
@@ -149,7 +150,8 @@ class Proc:
     def __init__(self, entry, command, name):
         self.entry, self.name, self.last, self.n = entry, name, time.time(), 0
         self.lock = threading.Lock()
-        self.q = queue.Queue()
+        self.q = queue.Queue(maxsize=256)
+        self.busy = False                                                     # True only while one of OUR requests waits for its answer
         self.p = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -163,18 +165,34 @@ class Proc:
                     self.p.kill()
                     break
                 try:
-                    self.q.put(json.loads(line))
+                    message = json.loads(line)
                 except ValueError:
                     continue                                                  # a log line on stdout
+                if not self.busy:
+                    continue                                                  # nobody asked: unsolicited output is dropped, not stored
+                try:
+                    self.q.put_nowait(message)
+                except queue.Full:                                            # a server flooding us: cut it off
+                    self.p.kill()
+                    break
         finally:
-            self.q.put(None)
+            try:
+                self.q.put_nowait(None)
+            except queue.Full:
+                pass
 
     def alive(self):
         return self.p.poll() is None
 
     def send(self, message):
-        self.p.stdin.write(json.dumps(message) + "\n")
-        self.p.stdin.flush()
+        """Writes one line. A server that stops reading would block this forever, so a timer kills it if the write hangs."""
+        timer = threading.Timer(15, self.p.kill)
+        timer.start()
+        try:
+            self.p.stdin.write(json.dumps(message) + "\n")
+            self.p.stdin.flush()
+        finally:
+            timer.cancel()
 
     def rpc(self, method, params, timeout):
         while not self.q.empty():                                            # notifications that nobody asked for
@@ -184,6 +202,13 @@ class Proc:
                 break
         self.n += 1
         mid = self.n
+        self.busy = True
+        try:
+            return self._rpc(mid, method, params, timeout)
+        finally:
+            self.busy = False
+
+    def _rpc(self, mid, method, params, timeout):
         self.send({"jsonrpc": "2.0", "id": mid, "method": method, "params": params})
         end = time.monotonic() + timeout
         while True:
@@ -202,7 +227,7 @@ class Proc:
                 if "error" in msg:
                     raise McpError(str((msg["error"] or {}).get("message", "erreur"))[:200])
                 return msg.get("result") or {}
-            if "method" in msg and "id" in msg:                              # the server asks us something (sampling, roots): we offer nothing
+            if "method" in msg and isinstance(msg.get("id"), (int, str)) and len(str(msg["id"])) <= 64:      # the server asks us something (sampling, roots): we offer nothing
                 self.send({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "non supporte"}})
 
     def handshake(self):

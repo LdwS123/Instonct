@@ -856,6 +856,7 @@
 "sert_a": "Reflechir a un probleme complexe etape par etape",
 "mots": "raisonner reflechir etape probleme complexe planifier",
 "sur": true,
+"hors_ligne": true,
 "verifie": {
 "ok": true,
 "outils": 1

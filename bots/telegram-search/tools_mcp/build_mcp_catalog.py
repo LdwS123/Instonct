@@ -17,7 +17,7 @@ V = {
     "duckduckgo": dict(sur=True, fr="Recherche web avec DuckDuckGo", kw="duckduckgo recherche web internet"),
     "wikipedia-mcp": dict(sur=True, fr="Wikipedia : chercher et lire des articles", kw="wikipedia encyclopedie article definition"),
     "youtube-transcript": dict(sur=True, fr="Texte (sous-titres) d'une video YouTube", kw="youtube transcription sous-titres video texte"),
-    "sequentialthinking": dict(sur=True, fr="Reflechir a un probleme complexe etape par etape", kw="raisonner reflechir etape probleme complexe planifier"),
+    "sequentialthinking": dict(sur=True, fr="Reflechir a un probleme complexe etape par etape", kw="raisonner reflechir etape probleme complexe planifier", offline=True),
     "paper-search": dict(sur=True, fr="Articles scientifiques (arXiv, PubMed, bioRxiv...)", kw="article scientifique papier recherche publication etude arxiv pubmed biorxiv"),
     "arxiv-mcp-server": dict(sur=True, fr="Chercher et lire des articles arXiv", kw="arxiv article scientifique preprint", env={"ARXIV_STORAGE_PATH": "/app/papers"}, volumes=["mcp-arxiv:/app/papers"]),
     "hackernews-mcp": dict(sur=True, fr="Hacker News : histoires, commentaires, utilisateurs", kw="hacker news hackernews actu tech startup"),
@@ -133,7 +133,7 @@ for x in REG:
         desc = "serveur " + sid
     e = {"id": sid, "nom": clean(x["name"], 60), "image": x["image"], "etat": etat, "desc": desc}
     if cur:
-        e.update({"sert_a": cur["fr"], "mots": cur["kw"], "sur": cur["sur"]})
+        e.update({"sert_a": cur["fr"], "mots": cur["kw"], "sur": cur["sur"], **({"hors_ligne": True} if cur.get("offline") else {})})
         for k in ("env", "volumes", "cmd"):
             if cur.get(k):
                 e[k] = cur[k]

@@ -12,6 +12,7 @@ SPECS = [s for part in PARTS for s in part.SPECS]
 GROUPS = [g for part in PARTS for g in part.GROUPS]
 FUNCS = {name: fn for part in PARTS for name, fn in part.FUNCS.items()}
 TAINT = set().union(*(getattr(part, "TAINT", set()) for part in PARTS))
+TAINT_ALWAYS = set().union(*(getattr(part, "TAINT_ALWAYS", set()) for part in PARTS))
 LOCKED = set().union(*(getattr(part, "LOCKED", set()) for part in PARTS))
 NAMES = set(FUNCS)
 
@@ -22,11 +23,13 @@ def tool(chat_id, name, args, links):
         return {"erreur": "refuse : une page web, un mail ou un fichier a ete lu pendant cette demande, il pourrait avoir ecrit cet ordre. Dis a l'utilisateur de redemander seul."}
     if name == "mcp_appeler" and links and not kit_mcp.read_only(args):
         return {"erreur": "refuse : une page web, un mail ou un fichier a ete lu pendant cette demande, et ce serveur MCP peut ecrire. Dis a l'utilisateur de redemander seul."}
+    if name == "mcp_appeler" and links and kit_mcp.leaky(args):
+        return {"erreur": "refuse : une page web a ete lue pendant cette demande, et les arguments sont trop longs (des donnees pourraient sortir). Raccourcis a 300 caracteres."}
     try:
         out = FUNCS[name](chat_id, args if isinstance(args, dict) else {})
     except Exception as e:
         log.warning("outil %s : %s", name, scrub(e))
         return {"erreur": f"{name} a echoue : {scrub(e)[:150]}"}
-    if name in TAINT and "erreur" not in out:
+    if name in TAINT_ALWAYS or (name in TAINT and "erreur" not in out):
         links.append("(page web)")                              # text written by strangers: the guarded tools stay locked for this conversation
     return out
