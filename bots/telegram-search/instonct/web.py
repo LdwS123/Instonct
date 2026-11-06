@@ -19,8 +19,9 @@ def url_ok(url):
     import ipaddress
     from urllib.parse import urlparse
     u = urlparse(url)
-    if u.scheme not in ("http", "https") or not u.hostname:
-        return False
+    host_part = url.split("://", 1)[-1].split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password or re.search(r"[\\\s\x00-\x1f\x7f]", host_part) or re.search(r"[\x00-\x1f\x7f]", url):
+        return False                                      # no login@host, no backslash or space in the host part, no control character: two parsers could read another host
     try:
         return all(ipaddress.ip_address(a[4][0]).is_global for a in socket.getaddrinfo(u.hostname, None))
     except (OSError, ValueError):

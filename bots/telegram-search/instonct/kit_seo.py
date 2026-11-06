@@ -5,6 +5,7 @@ Everything read from outside is named in TAINT. Heavy modules (llm) are imported
 """
 
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
@@ -99,6 +100,8 @@ def _read(url):
     """(response, body, ms) of a public page. Every redirect is checked (web.safe_get), the body is read as it comes with a size and time limit, never decompressed."""
     t0 = time.time()
     r = web.safe_get(url, timeout=15, stream=True, headers={**AGENT, "Accept-Encoding": "identity"})
+    cutter = threading.Timer(READ_SECONDS, r.close)       # a server that drips one byte at a time: closing the connection from outside ends the blocked read
+    cutter.start()
     try:
         if (r.headers.get("Content-Encoding") or "identity").lower() != "identity":
             raise ValueError("page compressee refusee")
@@ -108,6 +111,7 @@ def _read(url):
             if len(body) >= MAX_BYTES or time.time() - t0 > READ_SECONDS:
                 break
     finally:
+        cutter.cancel()
         r.close()
     return r, body[:MAX_BYTES], int((time.time() - t0) * 1000)
 
@@ -121,7 +125,7 @@ def seo_audit(chat_id, a):
     try:
         r, body, ms = _read(url)
     except (ValueError, requests.RequestException) as e:
-        return {"erreur": f"page illisible : {str(e)[:120]}"}
+        return {"erreur": "page illisible (" + type(e).__name__ + ")"}   # never the server's own words: they would reach the model untainted
     final = urlparse(r.final_url)
     host, root = final.hostname, f"{final.scheme}://{final.hostname}"
     page = _Page(host)

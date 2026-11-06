@@ -602,7 +602,7 @@ def test_seo_audit_refuses_a_compressed_body_and_caps_the_size(monkeypatch):
     from instonct import kit_seo
     monkeypatch.setattr("instonct.web.url_ok", lambda u: True)
     monkeypatch.setattr("instonct.web.requests.get", lambda url, **k: Page(headers={"Content-Encoding": "gzip"}))
-    assert "compressee" in kit_seo.seo_audit(1, {"url": "exemple.fr"})["erreur"]
+    assert kit_seo.seo_audit(1, {"url": "exemple.fr"})["erreur"] == "page illisible (ValueError)"
     big = Page(b"<html><body>" + b"mot " * 400_000)
     monkeypatch.setattr("instonct.web.requests.get", lambda url, **k: big)
     assert kit_seo.seo_audit(1, {"url": "exemple.fr"})["ko"] <= kit_seo.MAX_BYTES // 1000
@@ -625,3 +625,31 @@ def test_seo_position_finds_the_domain_and_who_is_ahead(monkeypatch):
     assert out["position"] == 3 and out["devant_lui"] == ["www.sec.gov", "fr.wikipedia.org"]
     monkeypatch.setattr("instonct.llm.web_search", lambda q, n=10, kind="text": hits[:2])
     assert kit_seo.seo_position(1, {"domaine": "oqro.io", "mot": "x"})["position"] == "pas dans les 10 premiers"
+
+
+def test_a_slow_server_is_cut_by_a_real_deadline(monkeypatch):
+    import threading
+    from instonct import kit_seo
+    stop = threading.Event()
+
+    class Drip(Page):
+        def iter_content(self, size):
+            yield b"<html>"
+            stop.wait(5)                                         # blocked in a read until somebody closes the connection
+            raise kit_seo.requests.ConnectionError("closed")
+
+        def close(self):
+            stop.set()
+
+    monkeypatch.setattr(kit_seo, "READ_SECONDS", 0.1)
+    monkeypatch.setattr("instonct.web.url_ok", lambda u: True)
+    monkeypatch.setattr("instonct.web.requests.get", lambda url, **k: Drip())
+    assert "illisible" in kit_seo.seo_audit(1, {"url": "exemple.fr"})["erreur"] and stop.is_set()
+
+
+def test_url_ok_rejects_two_parser_tricks(monkeypatch):
+    from instonct import web
+    monkeypatch.setattr(web.socket, "getaddrinfo", lambda h, p: [(0, 0, 0, "", ("93.184.216.34", 0))])
+    assert web.url_ok("https://exemple.fr/chemin?q=a b") and web.url_ok("https://exemple.fr/a")
+    for bad in ("https://user:pw@exemple.fr/", "https://exemple.fr\\@192.168.1.1/", "https://exemple.fr\t@x/", "https://exemple.fr /x", "https://exemple.fr/\r\nX: y"):
+        assert not web.url_ok(bad), bad
