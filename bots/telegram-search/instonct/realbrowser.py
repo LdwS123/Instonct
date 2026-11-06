@@ -27,7 +27,9 @@ for(const e of document.querySelectorAll('a[href],button,input,select,textarea,[
  const label=(e.labels&&e.labels[0]&&e.labels[0].innerText)||e.getAttribute('aria-label')||e.placeholder||e.innerText||e.value||e.name||'';
  out.push({tagName:tag,role:role,inputType:type,name:label.trim().slice(0,60),value:type==='password'?'':String(e.value||'').slice(0,30),selector:'[data-bot="'+n+'"]'});
 }return JSON.stringify(out);})()"""
-_CENTER = """(()=>{const e=document.querySelector(%s);if(!e)return '';e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();
+# QS = document.querySelector that also looks inside the shadow root of #interop-outlet, where LinkedIn draws its dialogs.
+_QS = "const QS=(s)=>{let e=document.querySelector(s);if(!e){const o=document.querySelector('#interop-outlet');if(o&&o.shadowRoot)e=o.shadowRoot.querySelector(s);}return e;};"
+_CENTER = """(()=>{""" + _QS + """const e=QS(%s);if(!e)return '';e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();
 return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})()"""
 _LINKS = "JSON.stringify([...document.querySelectorAll('a[href]')].filter(a=>a.innerText.trim()).slice(0,%d).map(a=>({text:a.innerText.trim().slice(0,60),href:a.href})))"
 _SELECT = """(()=>{const e=document.querySelector(%s);if(!e)return 'none';const v=%s;const o=[...e.options].find(o=>o.value===v||o.text.trim()===v);
@@ -135,12 +137,12 @@ class Browser:
             self._settle()
             return ""
         if tool == "fill":
-            self.js(f"(()=>{{const e=document.querySelector({json.dumps(a['selector'])});e.focus();if(e.select)e.select();}})()")
+            self.js(f"(()=>{{{_QS}const e=QS({json.dumps(a['selector'])});e.focus();if(e.select)e.select();}})()")
             self._send("Input.insertText", text=a["value"])
             return ""
         if tool == "press":
             if a.get("selector"):
-                self.js(f"document.querySelector({json.dumps(a['selector'])}).focus()")
+                self.js(f"(()=>{{{_QS}QS({json.dumps(a['selector'])}).focus();}})()")
             self._key(a["key"])
             self._settle()
             return ""

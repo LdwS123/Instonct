@@ -413,3 +413,19 @@ def test_the_words_the_user_really_used_bring_the_tool_and_the_permission():
         names = {t["function"]["name"] for t in catalog.select_tools(said)}
         assert "linkedin_inviter" in names, said
         assert guard._ordered(guard._VERBS["linkedin_invite"], guard._simplify(said)), said
+
+
+# ---- regression: seen on the real page (2026-11-06), LinkedIn draws its dialogs inside the shadow root of #interop-outlet, so every
+# `document.querySelector('[role=dialog]')` found nothing and the bot reported "LinkedIn n'a pas valide l'envoi" for every person.
+def test_page_scripts_look_inside_the_shadow_root_of_the_dialog_outlet():
+    from instonct import linkedin_invite as li, realbrowser
+    for script in (li.DIALOG_JS, li.VALUE_JS, li.tag_js("plain"), li.tag_js("note"), li.tag_js("text"), li.tag_js("send"), realbrowser._CENTER):
+        assert "#interop-outlet" in script and "shadowRoot" in script
+    assert "interop-outlet" in realbrowser._QS
+
+
+@pytest.mark.parametrize("label", ["Envoyer sans note", "Send without a note", "envoyer sans note"])
+def test_plain_button_label_of_the_real_dialog_matches(label):
+    import re
+    from instonct import linkedin_invite as li
+    assert re.match(li._BUTTONS["plain"], label, re.I)

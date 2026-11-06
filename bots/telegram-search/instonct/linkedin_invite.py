@@ -47,9 +47,12 @@ for(const e of document.querySelectorAll('button,a,[role=button]')){
  out.push({sel:'[data-lpi="'+n+'"]',name:m?m[1]:'',url:link?link.href.split('?')[0]:''});}
 return JSON.stringify(out);})()"""
 STATE_JS = "/*state*/JSON.stringify({url:location.href,title:document.title||'',body:(document.body?document.body.innerText:'').slice(0,1500)})"
-DIALOG_JS = ("/*dialog*/(()=>{const d=document.querySelector('[role=dialog],.artdeco-modal');if(!d)return '';"
+# LinkedIn draws its dialogs inside the shadow root of #interop-outlet (seen on the real page, 2026-11-06): a plain document.querySelector never finds them.
+# Every script below looks in the shadow root first, then in the normal page.
+ROOTS_JS = "const R=[];const o=document.querySelector('#interop-outlet');if(o&&o.shadowRoot)R.push(o.shadowRoot);R.push(document);const Q=(s)=>{for(const r of R){const e=r.querySelector(s);if(e)return e;}return null;};"
+DIALOG_JS = ("/*dialog*/(()=>{" + ROOTS_JS + "const d=Q('[role=dialog],.artdeco-modal');if(!d)return '';"
              "return JSON.stringify({text:d.innerText.slice(0,500),textarea:!!d.querySelector('textarea')});})()")
-VALUE_JS = "/*value*/(()=>{const t=document.querySelector('[role=dialog] textarea,.artdeco-modal textarea');return t?t.value:'';})()"
+VALUE_JS = "/*value*/(()=>{" + ROOTS_JS + "const t=Q('[role=dialog] textarea,.artdeco-modal textarea');return t?t.value:'';})()"
 SCROLL_JS = "/*scroll*/(()=>{window.scrollTo(0,document.body.scrollHeight);return 'ok';})()"
 _BUTTONS = {"note": r"^(?:add a note|ajouter une note)$",
             "plain": r"^(?:send without a note|envoyer sans note|envoyer sans message|send|send now|send invitation|envoyer|envoyer maintenant|envoyer l.invitation)$",
@@ -62,8 +65,8 @@ def tag_js(kind):
             f"const re=new RegExp({json.dumps(_BUTTONS.get(kind, ''))},'i');for(const e of d.querySelectorAll('button,a,[role=button]')){{"
             "const t=(e.getAttribute('aria-label')||e.innerText||'').trim();"
             "if(re.test(t)&&!e.disabled&&e.getAttribute('aria-disabled')!=='true'){e.setAttribute('data-lpi-x','1');return '[data-lpi-x=\"1\"]';}}")
-    return (f"/*tag:{kind}*/(()=>{{const d=document.querySelector('[role=dialog],.artdeco-modal');if(!d)return '';let t;"
-            "document.querySelectorAll('[data-lpi-x]').forEach(x=>x.removeAttribute('data-lpi-x'));" + pick + "return '';})()")
+    return (f"/*tag:{kind}*/(()=>{{" + ROOTS_JS + "const d=Q('[role=dialog],.artdeco-modal');if(!d)return '';let t;"
+            "R.forEach(r=>r.querySelectorAll('[data-lpi-x]').forEach(x=>x.removeAttribute('data-lpi-x')));" + pick + "return '';})()")
 
 
 def gone_js(sel):
