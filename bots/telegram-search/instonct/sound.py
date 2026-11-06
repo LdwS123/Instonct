@@ -13,7 +13,7 @@ from .optional import whatsapp
 from .config import STT_API_KEY, STT_BASE_URL, STT_LANGUAGE, STT_MODEL, TG
 from .texts import SILENT
 from .core import db, is_wa, log, scrub, send, wa_to
-from . import cast, music
+from . import cast, music, quiet
 
 STT_RETRY_AFTER = 3
 
@@ -231,7 +231,7 @@ def clean_for_speech(text, limit=400):
 
 def say_async(text):
     """Lit le texte a voix haute (en arriere-plan) si le mode voix est actif."""
-    if not db.get("voice_on"):                 # par defaut le Mac mini reste muet : la discussion se passe sur Telegram
+    if not db.get("voice_on") or quiet.is_quiet():     # par defaut le Mac mini reste muet ; la nuit (mode silence) toujours
         return
     text = clean_for_speech(text)
     if text:

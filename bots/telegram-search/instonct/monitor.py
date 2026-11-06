@@ -12,7 +12,7 @@ from . import mailtriage
 from . import plus
 from . import screen
 from .core import db, log, norm, scrub, send
-from . import commands, google, kit_info, kit_server, life, llm, mail, mailindex, meetings, memlearn, pagewatch
+from . import commands, google, kit_info, kit_server, life, llm, mail, mailindex, meetings, memlearn, pagewatch, quiet
 
 # ---------------------------------------------------------------- veille : nouveaux mails et alertes du Mac mini
 _NOISE = re.compile(r"no-?reply|newsletter|notification|mailer-daemon|marketing|promo|noreply|updates@|news@", re.I)
@@ -209,6 +209,17 @@ def check_system(chat_id):
         _alert_once(chat_id, "failed", "Service(s) en panne sur le Mac mini : " + ", ".join(failed[:5]))
 
 
+def checks_now():
+    """The checks to run this round. During quiet hours only the ones that guard the machine (and the nightly backup) keep going:
+    new mails, feeds, habits and the rest wait for the morning instead of waking anyone up."""
+    from . import automate                              # lazy: automate imports life, which imports this module
+    always = [check_system, check_screen, check_google, kit_server.check_backup, automate.check_selfheal]
+    if quiet.is_quiet():
+        return always
+    return [check_mail, check_system, check_todos, check_plus, check_followups, check_learn, check_screen, check_google, pagewatch.check_pages,
+            life.check_habits, kit_server.check_backup, kit_info.check_feeds, automate.check_selfheal]
+
+
 def watch_loop():
     """Thread : toutes les 10 minutes, previent l'utilisateur d'un nouveau mail ou d'un souci du Mac mini."""
     time.sleep(45)
@@ -216,7 +227,7 @@ def watch_loop():
         try:
             owner = db.get("owner_id")
             if owner:
-                for fn in (check_mail, check_system, check_todos, check_plus, check_followups, check_learn, check_screen, check_google, pagewatch.check_pages, life.check_habits, kit_server.check_backup, kit_info.check_feeds):
+                for fn in checks_now():
                     try:
                         fn(int(owner))
                     except Exception as e:

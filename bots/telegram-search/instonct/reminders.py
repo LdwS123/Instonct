@@ -6,7 +6,7 @@ import time
 import uuid
 
 from .core import db, log, scrub, send
-from . import brain, commands, life, sound
+from . import automate, brain, commands, life, quiet, sound
 
 def add_reminder(chat_id, arg):
     parts = arg.split(None, 1)
@@ -40,10 +40,12 @@ def reminder_loop():
                     send(r["chat"], "Rappel : " + r["text"])
                     commands.screen_message("RAPPEL : " + r["text"])
                     try:
-                        sound.speak(r["text"], times=2, voice=sound.VOICE_FR, speed=150)
+                        if not quiet.is_quiet():                                   # quiet hours: the reminder is written, the Mac mini stays silent
+                            sound.speak(r["text"], times=2, voice=sound.VOICE_FR, speed=150)
                     except Exception as e:
                         log.warning("voix indisponible : %s", scrub(e))
             life.check_briefing()
+            automate.tick()
             for raw in db.zrangebyscore("tasks", 0, time.time()):
                 if db.zrem("tasks", raw):
                     t = json.loads(raw)

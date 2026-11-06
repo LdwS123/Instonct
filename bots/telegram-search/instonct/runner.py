@@ -6,9 +6,8 @@ import time
 
 from .optional import whatsapp
 from .config import ALL_MODELS, GEMINI_KEY
-from .texts import MENU
 from .core import db, log, scrub, send, tg
-from . import callbacks, chatlog, handlers, mailindex, monitor, perf, reminders, remote_access, sound
+from . import callbacks, chatlog, handlers, mailindex, monitor, perf, reminders, remote_access, rubriques, sound
 
 def wa_dispatch(m):
     """One WhatsApp message (already checked: signature, allowed number, not a duplicate) -> same code path as Telegram."""
@@ -72,7 +71,7 @@ def main():
     elif os.environ.get("WA_TOKEN"):
         log.warning("WhatsApp: WA_TOKEN is set but WA_PHONE_ID, WA_VERIFY_TOKEN, WA_APP_SECRET or WA_OWNER is missing: channel off")
     try:
-        tg("setMyCommands", commands=[{"command": c, "description": d} for c, d in MENU])
+        tg("setMyCommands", commands=[{"command": c, "description": d} for c, d in rubriques.telegram_commands()])
     except Exception as e:
         log.warning("menu des commandes non mis a jour : %s", scrub(e))
     if db.get("volume"):

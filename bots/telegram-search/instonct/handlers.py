@@ -14,9 +14,9 @@ from .optional import habits
 from .optional import tvremote
 from .optional import whatsapp
 from .config import MAX_PER_DAY, MAX_PER_MIN, STT_API_KEY
-from .texts import AIDE, BLAGUES, SILENT
+from .texts import BLAGUES, SILENT
 from .core import db, fetch_file, is_wa, log, norm, scrub, send, tg, wa_to
-from . import brain, callbacks, commands, google, journal, life, llm, media, music, pagewatch, perf, recall, health, reminders, remote_access, sound, television
+from . import automate, brain, callbacks, commands, google, journal, life, llm, media, music, pagewatch, perf, quiet, recall, health, reminders, remote_access, rubriques, sound, television
 
 # ---------------------------------------------------------------- messages
 def handle(msg):
@@ -43,7 +43,8 @@ def handle(msg):
     elif owner is None:
         if cmd == "/start":
             db.set("owner_id", chat_id)
-            send(chat_id, "Salut ! Je suis maintenant lie a toi seul.\n\n" + AIDE)
+            send(chat_id, "Salut ! Je suis maintenant lie a toi seul.\n\n" + rubriques.aide_text())
+            send_menu(chat_id)
         else:
             send(chat_id, "Envoie /start pour commencer.")
         return
@@ -61,7 +62,17 @@ def handle(msg):
     elif voice and not text:
         handle_voice(chat_id, voice)
     elif cmd in ("/start", "/aide", "/help"):
-        send(chat_id, AIDE)
+        send(chat_id, rubriques.aide_text())
+    elif cmd == "/menu":
+        send_menu(chat_id)
+    elif cmd == "/panneau":
+        send_panel(chat_id)
+    elif cmd == "/scene":
+        send(chat_id, automate.scene_command(chat_id, arg))
+    elif cmd == "/auto":
+        send(chat_id, automate.auto_command(chat_id, arg))
+    elif cmd == "/silence":
+        send(chat_id, quiet.command(arg))
     elif cmd == "/status":
         send(chat_id, commands.status())
     elif cmd == "/musique":
@@ -228,12 +239,28 @@ def handle(msg):
             sound.reply(chat_id, answer)
 
 
+def send_menu(chat_id):
+    """/menu : the categories as buttons (plain text on WhatsApp, which has no inline keyboard here)."""
+    if is_wa(chat_id):
+        send(chat_id, rubriques.aide_text())
+        return
+    tg("sendMessage", chat_id=chat_id, text=rubriques.home_text(), reply_markup=television._markup(rubriques.menu_rows()))
+
+
+def send_panel(chat_id):
+    """/panneau : the everyday actions in one tap."""
+    if is_wa(chat_id):
+        send(chat_id, "Le panneau a boutons est sur Telegram. Ici, dis par exemple « mode film » ou « éteins la télé ».")
+        return
+    tg("sendMessage", chat_id=chat_id, text="Tableau de bord — un bouton, une action :", reply_markup=automate.panel_markup())
+
+
 def instant_order(chat_id, text):
     """Orders that need no model, written or spoken: done at once, and the short answer is written. True if it was one."""
     if television.wants_remote(text):
         television.send_remote(chat_id)
         return True
-    done = music.quick_music(text)
+    done = automate.quick(chat_id, text) or music.quick_music(text)
     if not done:
         return False
     log.info("ordre direct %r -> %r", text[:80], str(done)[:160])

@@ -28,6 +28,7 @@ SETTINGS = {                       # name -> (default on?, short description)
     "mails_sans_reponse": (True, "me dire une fois par jour quels mails importants attendent peut-etre ma reponse"),
     "memoire_auto": (True, "retenir tout seul ce que je dis de durable sur moi, a partir de mes messages"),
     "menage_auto": (False, "mettre les pubs a la corbeille toutes les nuits"),
+    "reparation_auto": (True, "relancer tout seul un service en panne (searxng, tailscale) et faire de la place si le disque est presque plein"),
     "bilan_soir": (False, "m'envoyer un petit bilan chaque soir a 21 h"),
 }
 

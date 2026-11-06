@@ -137,57 +137,6 @@ ORAL = (
     "Ne dis JAMAIS que tu l'as envoye si tu ne l'as pas trouve."
 )
 
-AIDE = (
-    "Je suis un agent : ecris-moi (ou parle-moi) et je fais : 'mets du Daft Punk', 'baisse le volume', "
-    "'rappelle-moi dans 10 minutes', 'combien de place sur le disque ?', une question sur le web...\n"
-    "Ou envoie-moi un MESSAGE VOCAL (micro de Telegram) : je t'ecoute et je te reponds a voix haute.\n\n"
-    "Commandes (toutes gratuites) :\n"
-    "/status : etat du Mac mini\n"
-    "/temp : temperature du processeur\n"
-    "/dis <texte> : le Mac mini le dit en anglais, 3 fois\n"
-    "/parle <texte> : pareil, avec une voix francaise\n"
-    "/voix on|off : le Mac mini lit mes reponses a voix haute (coupe par defaut)\n"
-    "/volume <0-100> : volume du Mac mini (baisse-le si ca grésille)\n"
-    "/ecran <texte> : affiche un message sur l'ecran du Mac mini (1 min)\n"
-    "/rappel <minutes> <texte> : je te previens (et le Mac mini parle)\n"
-    "/meteo <ville> : meteo du moment\n"
-    "/blague : une blague\n"
-    "/de [faces] : lance un de (6 par defaut)\n"
-    "/musique <titre> : joue la musique YouTube (/pause, /reprendre, /stop)\n"
-    "/telecommande : telecommande de la tele avec des boutons (la premiere fois : /pairer puis /code)\n"
-    "/sortie auto|tele|mac : ou sort le son (auto = tele si allumee, sinon Mac mini)\n"
-    "/oui, /non : confirmer ou annuler (sinon, appuie sur les boutons)\n"
-    "/google : reconnecter ton agenda Google (a faire une fois par semaine)\n"
-    "/siri : dire « Dis Siri, Steve » a ton iPhone, meme verrouille, et il te repond a voix haute\n"
-    "/connexion : ouvre un ecran du Mac mini sur ton telephone pour te connecter toi-meme a LinkedIn, etc. (/connexion stop pour fermer)\n"
-    "/site : enregistrer un site pour que je m'y connecte (ajouter, liste, suppr)\n"
-    "/model : choisir le modele d'IA (sinon automatique)\n"
-    "/favoris : les choses que tu as aimees (dis 'j'aime' pour en ajouter)\n"
-    "/matin 8:00 Paris : un resume chaque matin (meteo, agenda, taches, emails)\n"
-    "/habitudes : ce que j'ai appris sur toi (/habitudes effacer pour tout oublier)\n"
-    "/routines : tes routines (un mot lance plusieurs actions)\n"
-    "/memoire : ce que je sais de toi (/memoire oublie <texte>)\n"
-    "/vitesse : le temps de mes dernieres reponses, etape par etape\n"
-    "/sante : ce qui marche et ce qui ne marche pas chez moi\n"
-    "/journal : ce que j'ai vraiment fait (et ce qui a rate)\n"
-    "/pile : pile ou face\n"
-    "Je sais aussi (dis-le simplement) : suivre tes candidatures et demarches (et te relancer), noter tes depenses et le budget du mois, "
-    "retenir les anniversaires, tenir un carnet de notes, calculer et convertir, resumer une video YouTube, "
-    "te prevenir 30 min avant un rendez-vous avec le lien Meet, faire le menage des pubs (meme chaque nuit), faire un bilan le soir.\n"
-    "/heure : date et heure du serveur\n"
-    "/reset : oublier la conversation"
-)
-
-MENU = [
-    ("aide", "Liste des commandes"), ("status", "Etat du Mac mini"), ("temp", "Temperature CPU"),
-    ("dis", "Le Mac mini parle (anglais)"), ("parle", "Le Mac mini parle (francais)"),
-    ("siri", "Parler a Steve avec Siri, telephone verrouille"), ("connexion", "Ecran du Mac mini sur ton telephone pour te connecter aux sites"), ("voix", "Le Mac mini lit les reponses : on / off"), ("volume", "Volume du Mac mini 0-100"), ("ecran", "Message sur l'ecran du Mac mini"), ("rappel", "Rappel : minutes + texte"),
-    ("meteo", "Meteo d'une ville"), ("blague", "Une blague"), ("de", "Lancer un de"),
-    ("musique", "Jouer une musique YouTube"), ("pause", "Pause"), ("reprendre", "Reprendre la musique"),
-    ("telecommande", "Telecommande de la tele"), ("sortie", "Son : auto, tele ou mac"),
-    ("matin", "Resume du matin"), ("habitudes", "Ce que j'ai appris sur toi"), ("routines", "Tes routines"), ("memoire", "Ce que je sais de toi"), ("vitesse", "Temps de mes reponses"), ("sante", "Ce qui marche chez moi"), ("journal", "Ce que j'ai vraiment fait"), ("model", "Choose the AI model"), ("stop", "Arreter la musique"), ("pile", "Pile ou face"), ("heure", "Date et heure"), ("reset", "Oublier la conversation"),
-]
-
 BLAGUES = [
     "Pourquoi les plongeurs plongent-ils toujours en arriere ? Parce que sinon ils tombent dans le bateau.",
     "Que dit un ordinateur qui a froid ? J'ai attrape un virus... et j'ai besoin d'un reboot.",

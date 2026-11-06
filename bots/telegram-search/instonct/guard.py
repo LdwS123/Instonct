@@ -32,6 +32,12 @@ _VERBS = {
     "docker_start": r"\binstall|\blance|\bdemarr|\bmets?\b|\bmettre|\ballume|\bdeploie|\bajoute|\bstart|\bactive|\bcree|\brelance|\brestart|\bredemarr|\bessaie|\bsetup",
     "docker_stop": r"\barrete|\bstop|\beteins|\bcoupe|\bferme|\bdesactive",
     "docker_remove": _DELETE + r"|\bdesinstall|\buninstall",
+    "auto_add": r"\bajoute|\bcree|\bcreer|\bnouvelle|\bprogramme|\bconfigure|\bmets?\b|\bmettre|\bfais|\bchaque|\btous les|\btoutes les|\bautomat|\bsi le|\bsi la|\bquand|\bdefinis|\benregistre",
+    "auto_remove": _DELETE + r"|\bannule|\barrete|\bstop|\bdesactive",
+    "auto_change": r"\bpause|\bsuspend|\bdesactive|\breprend|\breprise|\breactive|\bactive|\barrete|\bstop|\bcoupe|\brelance",
+    "auto_run": r"\blance|\bexecute|\bdeclenche|\bteste|\bessaie|\bfais|\bmets?\b|\bdemarre",
+    "scene_run": r"\blance|\bmets?\b|\bmettre|\bactive|\bdemarre|\bfais|\bmode\b|\bscene|\bambiance|\bexecute|\bpasse",
+    "silence": r"\bsilence|\bsilencieux|\bmuet|\bchut\b|\bne parle|\bcalme|\bdiscret|\bnuit|\bbruit|\bactive|\bdesactive|\bcoupe|\bmets?\b|\bremets?\b|\breparle|\brevoix",
 }
 MAIL_ACTIONS = ("delete", "spam", "archive", "read", "unread", "star", "unstar")
 _NEGATION = re.compile(r"\b(?:ne|n|pas|jamais|sans|arrete de|arretes de|evite de|si|pourquoi|comment|qui a|t.?as|tu as|as.tu|a ete|ont ete|j.?ai|on a|avais|avait)\b")

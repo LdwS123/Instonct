@@ -6,7 +6,7 @@ import time
 
 from .optional import whatsapp
 from .core import db, is_wa, log, scrub, send, tg, wa_to
-from . import life, mail, system_tools, television, web
+from . import automate, life, mail, rubriques, system_tools, television, web
 
 def cmd_id(command):
     return hashlib.md5(command.encode()).hexdigest()[:6]
@@ -92,6 +92,16 @@ def handle_callback(cq):
             log.info("boutons : %s", scrub(e)[:100])
         _, yn, sid = (data.split(":") + ["", ""])[:3]
         life.habit_answer(msg["chat"]["id"], yn, sid)
+        return
+    if data.startswith("menu:"):                                         # a category page replaces the menu in place
+        text, rows = rubriques.page(data[5:])
+        try:
+            tg("editMessageText", chat_id=msg["chat"]["id"], message_id=msg["message_id"], text=text[:4000], reply_markup=television._markup(rows))
+        except Exception as e:
+            log.info("menu : %s", scrub(e)[:100])
+        return
+    if data.startswith("go:"):
+        automate.press(msg["chat"]["id"], data[3:])
         return
     if not data.startswith("tv:") or data == television._N:
         return
