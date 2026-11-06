@@ -117,6 +117,13 @@ _GLUED_END = re.compile(r"(?:(?<=[.!?])(?:c.est note|bonne chance|voila)[.!]?)+\
 _GLUED = re.compile(r"([a-zà-ÿ]{2})\.([A-ZÀ-Ý][a-zà-ÿ'’])")
 
 
+def proof(name, out):
+    """Extra proofs a tool result gives besides "it ran": the LinkedIn counters show that invitations really left."""
+    if name == "linkedin_inviter" and isinstance(out, dict) and (out.get("envoyees") or 0) + (out.get("aujourdhui") or 0) > 0:
+        return {"linkedin_envoye"}
+    return set()
+
+
 def false_claim(answer, ran):
     """True if the answer says something was done by a tool that did not run."""
     said = norm(answer or "")
@@ -242,7 +249,7 @@ MAX_STEPS = 16
 # An answer that announces an action needs that action to have run in this turn.
 CLAIMS = ((re.compile(r"rappel (est |a ete |bien )?(programm|prevu|cree|enregistr)|voici le rappel|je te rappellerai", re.I), {"set_reminder", "schedule_task", "todo_add", "routine_save"}),
           (re.compile(r"(mis|mise|mises) a la corbeille|j.ai (supprime|efface|archive)|(ont|a) ete (supprime|efface|archive)", re.I), {"mail_manage", "mail_clean", "calendar_delete", "run_command", "todo_done"}),
-          (re.compile(r"j.ai envoye|(mail|message) (est |a ete |bien )?envoye", re.I), {"mail_send", "mail_reply", "run_command", "http_request"}),
+          (re.compile(r"j.ai envoye(?!\b.{0,40}\b(?:invitation|demande))|(mail|message) (est |a ete |bien )?envoye", re.I), {"mail_send", "mail_reply", "run_command", "http_request"}),
           (re.compile(r"j.ai (bien )?(appele|telephone)|je viens (d.appeler|de telephoner)", re.I), set()),                       # no phone line is plugged in: this is never true
           (re.compile(r"j.ai (bien )?(paye|achete|commande)|je viens (de payer|d.acheter|de commander)|commande (est |a ete )?passee|paiement (est |a ete )?effectue", re.I), set()),   # paying is always the user's hand
           (re.compile(r"(?:j.ai|je t.ai) (?:bien )?(?:ajoute|mis)\b.{0,80}\bpanier|(?:ajoute|mis) (?:a|dans) ton panier|(?:j.ai|je t.ai) (?:bien )?ouvert (?:la |le |une |un )?(?:page|site|lien)", re.I), {"browser"}),
@@ -252,6 +259,10 @@ CLAIMS = ((re.compile(r"rappel (est |a ete |bien )?(programm|prevu|cree|enregist
            {"play_music", "music_control", "tv_remote"}),
           (re.compile(r"(?:volume|le son) (?:de la tele )?(?:est )?(?:bien )?(?:monte|baisse|regle|coupe|mis)\b|j.ai (?:bien )?(?:monte|baisse|coupe|regle)\b.{0,15}\b(?:son|volume)", re.I),
            {"change_volume", "set_volume", "tv_remote"}),
+          # LinkedIn invitations: only the real counter (see proof) proves that some left. A search, a proposal or a launch is not "sent".
+          (re.compile(r"invitations?\b.{0,60}\b(?:ont |sont |a |est )?(?:bien )?(?:ete )?(?:envoyee|partie|expediee)"
+                      r"|demandes?\b.{0,40}\b(?:ont |sont |a |est )?(?:bien )?(?:ete )?(?:envoyee|partie)"
+                      r"|j.ai (?:bien )?envoye\b.{0,40}\b(?:invitation|demande)|ils sont (?:bien )?partis", re.I), {"linkedin_envoye"}),
           (re.compile(r"j.ai reserve|je viens de reserver|c.est (bien |tout )?reserve\b(?! aux?\b)|billet (est |a ete )?reserve|reservation (est |a ete )?confirmee", re.I), {"calendar_create"}))
 INVENTED = ("[Systeme] Ces liens ou prix de ta reponse ne viennent d'aucun resultat d'outil : %s. Tu les as probablement inventes. Va les chercher avec un outil, "
             "ou reecris ta reponse sans eux en disant ce que tu n'as pas pu verifier. Si tu as calcule un montant, dis-le.")

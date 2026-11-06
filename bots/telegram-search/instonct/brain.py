@@ -106,6 +106,7 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 toolset = toolset + [x for x in catalog.every_tool() if x["function"]["name"] in new]
             if "erreur" not in out:                   # a tool that failed did nothing: "c'est fait" stays a false claim
                 ran.add(name)
+                ran |= llm.proof(name, out)
             drafted = drafted or (c["function"]["name"] == "mail_send" and "statut" in out)
             shown = json.dumps(out, ensure_ascii=False)[:4000]
             known.append(shown)
@@ -148,6 +149,8 @@ def agent(chat_id, user_parts, oral=False, taint=False):
         contents.append({"role": "model", "parts": parts})
         outs = [(c["name"], dispatch.run_tool(chat_id, c["name"], c.get("args", {}), links)) for c in calls]
         ran |= {n for n, o in outs if "erreur" not in o}
+        for n, o in outs:
+            ran |= llm.proof(n, o) if "erreur" not in o else set()
         contents.append({"role": "user", "parts": [{"functionResponse": {"name": n, "response": o}} for n, o in outs]})
         if any(n == "mail_send" and "statut" in o for n, o in outs):
             return SILENT, links

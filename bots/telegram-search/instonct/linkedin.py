@@ -191,6 +191,8 @@ def tool(args):
         if action == "search":
             kind = _SEARCH.get(str(args.get("kind") or "personnes").lower(), "people")
             return page(f"https://www.linkedin.com/search/results/{kind}/?keywords={quote(str(args.get('keywords') or ''))}")
+        if action not in ("jobs", "emplois", "offres"):
+            return {"erreur": f"action « {action} » inconnue ici (jobs, job, search, page, status). Pour envoyer des invitations LinkedIn : outil linkedin_inviter (action lancer)."}
         return jobs(args.get("keywords"), args.get("location"), args.get("days") or 0, args.get("limit") or 10)
     except Stop as e:
         return {"erreur": str(e)}

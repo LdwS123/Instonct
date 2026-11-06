@@ -429,3 +429,44 @@ def test_plain_button_label_of_the_real_dialog_matches(label):
     import re
     from instonct import linkedin_invite as li
     assert re.match(li._BUTTONS["plain"], label, re.I)
+
+
+# ---- the bot must never say "invitations sent" when nothing left (real case, 2026-11-06: 10 invented names) ----
+from instonct import llm
+
+
+@pytest.mark.parametrize("claim", [
+    "Les 10 invitations aux fondateurs YC ont été envoyées sans note.",
+    "Les invitations ont bien été envoyées ; elles restent en attente.",
+    "Oui, ils sont partis.",
+    "J'ai envoyé 10 invitations LinkedIn.",
+    "Tes demandes de connexion sont envoyées.",
+])
+def test_an_invitations_sent_claim_needs_a_real_send(claim):
+    assert llm.false_claim(claim, set())
+    assert llm.false_claim(claim, {"linkedin", "browser", "mail_search", "linkedin_inviter"})     # a search, a page or a mere proposal is not a send
+    assert not llm.false_claim(claim, {"linkedin_envoye"})
+
+
+@pytest.mark.parametrize("said", [
+    "Je te propose d'envoyer 10 invitations, tu confirmes ?",
+    "Voici la liste des fondateurs trouvés.",
+    "Les invitations partiront une par une, ça prend environ 10 minutes.",
+])
+def test_plans_and_launches_are_not_claims(said):
+    assert not llm.false_claim(said, set())
+
+
+def test_only_the_real_counters_count_as_proof():
+    assert llm.proof("linkedin_inviter", {"en_cours": True, "envoyees": 3, "aujourdhui": 3}) == {"linkedin_envoye"}
+    assert llm.proof("linkedin_inviter", {"en_cours": False, "aujourdhui": 2}) == {"linkedin_envoye"}
+    assert llm.proof("linkedin_inviter", {"en_cours": False, "aujourdhui": 0, "cette_semaine": 5}) == set()
+    assert llm.proof("linkedin_inviter", {"statut": "a_confirmer", "invitations_prevues": 10}) == set()
+    assert llm.proof("linkedin", {"aujourdhui": 9}) == set()          # another tool never proves it
+
+
+def test_the_read_only_linkedin_tool_does_not_pretend_to_send():
+    """The model once called linkedin(action='lancer'): the tool silently ran a job search in 0.0 s and the model announced a send."""
+    for action in ("lancer", "inviter", "envoyer", "connect"):
+        out = linkedin.tool({"action": action, "keywords": "YC founder"})
+        assert "erreur" in out and "linkedin_inviter" in out["erreur"]
