@@ -35,6 +35,7 @@ SAYINGS = {
     # developers and exact helpers
     "package_info": "derniere version de express sur npm", "cve_search": "details de la faille CVE-2021-44228", "dev_news": "les actus tech de hacker news",
     "stack_search": "cherche sur stackoverflow comment faire un decorator", "github_tendances": "les tendances github de la semaine", "arxiv_search": "cherche un article sur arxiv",
+    "seo_audit": "fais un audit seo de oqro.io", "seo_idees": "donne moi des idees de mots cles sur les insiders", "seo_position": "ou se classe oqro.io sur google pour insider trading",
     "ip_info": "d'ou vient l'ip 8.8.8.8", "wayback": "ancienne version du site exemple.fr sur archive.org", "cert_subdomains": "liste les sous-domaines de exemple.fr",
     "regex_test": "teste cette regex sur un texte", "json_outils": "valide ce json", "date_calc": "combien de jours entre le 1er janvier et le 14 juillet",
     "color_info": "quel est le contraste de la couleur #ff8800", "nombres": "est-ce que 97 est premier", "unites": "convertis 5 miles en km",

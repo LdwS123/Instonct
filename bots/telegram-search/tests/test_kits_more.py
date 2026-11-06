@@ -548,3 +548,64 @@ def test_free_image_links_with_a_query_string_are_kept(monkeypatch):
 
 def test_nutrition_grades_that_are_not_grades_become_a_question_mark():
     assert [kit_fr._grade(g) for g in ("a", "E", "unknown", "not-applicable", None, "")] == ["A", "E", "?", "?", "?", "?"]
+
+
+# ---------------------------------------------------------------- free SEO tools
+PAGE = b"""<html lang="fr"><head><title>Titre court</title><meta name="description" content="Une description"><meta property="og:title" content="x">
+<link rel="canonical" href="https://exemple.fr/"><meta name="viewport" content="width=device-width"></head>
+<body><h1>Bonjour</h1><h1>Deux</h1><h2>a</h2><img src="a.png"><img src="b.png" alt="ok"><a href="/x">in</a><a href="https://autre.com/y">out</a>
+<script>var ignore = "beaucoup de mots dans un script qui ne comptent pas";</script><p>quelques mots lisibles ici</p></body></html>"""
+
+
+class FakeRaw:
+    def __init__(self, data):
+        self.data = data
+
+    def read(self, n, decode_content=True):
+        return self.data[:n]
+
+
+class Page:
+    status_code, encoding = 200, "utf-8"
+
+    def __init__(self, data=PAGE):
+        self.raw = FakeRaw(data)
+
+    def close(self):
+        pass
+
+
+def test_seo_audit_reads_the_page_and_lists_the_problems(monkeypatch):
+    from instonct import kit_seo
+    monkeypatch.setattr("instonct.web.url_ok", lambda u: True)
+    monkeypatch.setattr(kit_seo.requests, "get", lambda url, **k: Page() if url.endswith("exemple.fr") else type("R", (), {"status_code": 404})())
+    out = kit_seo.seo_audit(1, {"url": "exemple.fr"})
+    assert out["title"] == "Titre court" and out["description"] == "Une description" and out["h1"] == ["Bonjour", "Deux"]
+    assert out["images"] == 2 and out["liens_internes"] == 1 and out["liens_externes"] == 1 and out["balises_og"] == 1
+    assert out["mots"] < 40                                     # the script text is not counted
+    problems = " ".join(out["problemes"])
+    assert "2 h1" in problems and "1 image(s) sur 2" in problems and "robots.txt : code 404" in problems and "JSON-LD" in problems and "title de 11" in problems
+
+
+def test_seo_audit_refuses_private_hosts(monkeypatch):
+    from instonct import kit_seo
+    assert "publics" in kit_seo.seo_audit(1, {"url": "http://192.168.1.64:8888"})["erreur"]
+
+
+def test_seo_ideas_are_deduplicated_and_questions_split(monkeypatch):
+    from instonct import kit_seo
+    monkeypatch.setattr(kit_seo, "_suggest", lambda q, lang: ["insider trading", "comment acheter des actions", "Insider Trading"])
+    out = kit_seo.seo_idees(1, {"mot": "insider"})
+    assert out["idees"] == ["insider trading", "comment acheter des actions"] and out["questions"] == ["comment acheter des actions"]
+    monkeypatch.setattr(kit_seo, "_suggest", lambda q, lang: [])
+    assert "erreur" in kit_seo.seo_idees(1, {"mot": "insider"})
+
+
+def test_seo_position_finds_the_domain_and_who_is_ahead(monkeypatch):
+    from instonct import kit_seo
+    hits = [{"href": "https://www.sec.gov/a"}, {"href": "https://fr.wikipedia.org/b"}, {"href": "https://www.oqro.io/c"}]
+    monkeypatch.setattr("instonct.llm.web_search", lambda q, n=10, kind="text": hits)
+    out = kit_seo.seo_position(1, {"domaine": "https://oqro.io", "mot": "insider trades"})
+    assert out["position"] == 3 and out["devant_lui"] == ["www.sec.gov", "fr.wikipedia.org"]
+    monkeypatch.setattr("instonct.llm.web_search", lambda q, n=10, kind="text": hits[:2])
+    assert kit_seo.seo_position(1, {"domaine": "oqro.io", "mot": "x"})["position"] == "pas dans les 10 premiers"

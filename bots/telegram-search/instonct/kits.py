@@ -5,9 +5,9 @@ Leaf-like on purpose: the catalog imports this file, so nothing here may import 
 """
 
 from .core import log, scrub
-from . import kit_apis, kit_auto, kit_calc, kit_dev, kit_docker, kit_fr, kit_fun, kit_info, kit_linkedin, kit_media, kit_net, kit_server
+from . import kit_apis, kit_auto, kit_calc, kit_dev, kit_docker, kit_fr, kit_fun, kit_info, kit_linkedin, kit_media, kit_net, kit_seo, kit_server
 
-PARTS = (kit_auto, kit_linkedin, kit_net, kit_server, kit_info, kit_calc, kit_media, kit_docker, kit_apis, kit_fun, kit_dev, kit_fr)
+PARTS = (kit_auto, kit_linkedin, kit_net, kit_server, kit_info, kit_calc, kit_media, kit_docker, kit_apis, kit_fun, kit_dev, kit_fr, kit_seo)
 SPECS = [s for part in PARTS for s in part.SPECS]
 GROUPS = [g for part in PARTS for g in part.GROUPS]
 FUNCS = {name: fn for part in PARTS for name, fn in part.FUNCS.items()}
