@@ -53,6 +53,11 @@ SAYINGS = {
     "mcp_appeler": "utilise le serveur mcp wikipedia pour chercher paris",
     # computer use
     "ecran": "clique sur le bouton vert de la page",
+    # workshop (light command-line tools)
+    "video_outils": "extrais le son de cette video mp4", "meta_fichier": "efface le gps de cette photo",
+    "qr_lire": "lis le qr code de cette image", "schema": "dessine un organigramme de mon equipe",
+    "chercher_fichiers": "retrouve le fichier qui contient le mot facture", "doublons": "cherche mes fichiers en double",
+    "sante_machine": "est-ce que le mac mini chauffe", "trace_route": "fais un traceroute vers exemple.fr",
 }
 
 
