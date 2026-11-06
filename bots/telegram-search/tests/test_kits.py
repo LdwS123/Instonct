@@ -51,6 +51,8 @@ SAYINGS = {
     # open-source MCP servers
     "mcp_serveurs": "quels outils open source mcp tu as", "mcp_outils": "liste les outils du serveur mcp wikipedia",
     "mcp_appeler": "utilise le serveur mcp wikipedia pour chercher paris",
+    # computer use
+    "ecran": "clique sur le bouton vert de la page",
 }
 
 

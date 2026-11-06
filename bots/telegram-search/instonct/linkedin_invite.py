@@ -52,6 +52,7 @@ DIALOG_JS = ("/*dialog*/(()=>{const d=document.querySelector('[role=dialog],.art
 VALUE_JS = "/*value*/(()=>{const t=document.querySelector('[role=dialog] textarea,.artdeco-modal textarea');return t?t.value:'';})()"
 SCROLL_JS = "/*scroll*/(()=>{window.scrollTo(0,document.body.scrollHeight);return 'ok';})()"
 _BUTTONS = {"note": r"^(?:add a note|ajouter une note)$",
+            "plain": r"^(?:send without a note|envoyer sans note|envoyer sans message|send|send now|send invitation|envoyer|envoyer maintenant|envoyer l.invitation)$",
             "send": r"^(?:send|send invitation|send now|envoyer|envoyer l.invitation|envoyer maintenant)$"}
 
 
@@ -63,6 +64,13 @@ def tag_js(kind):
             "if(re.test(t)&&!e.disabled&&e.getAttribute('aria-disabled')!=='true'){e.setAttribute('data-lpi-x','1');return '[data-lpi-x=\"1\"]';}}")
     return (f"/*tag:{kind}*/(()=>{{const d=document.querySelector('[role=dialog],.artdeco-modal');if(!d)return '';let t;"
             "document.querySelectorAll('[data-lpi-x]').forEach(x=>x.removeAttribute('data-lpi-x'));" + pick + "return '';})()")
+
+
+def gone_js(sel):
+    """'1' when the Connect button of that person is no longer there or no longer says Connect (the invitation went out: « Pending »)."""
+    return ("/*gone*/(()=>{const e=document.querySelector(" + json.dumps(sel) + ");if(!e)return '1';"
+            "const re=/^(?:connect|se connecter|invite .+ to connect|inviter .+ [\u00e0a] rejoindre votre r[\u00e9e]seau)$/i;"
+            "const label=(e.getAttribute('aria-label')||e.innerText||'').trim();return re.test(label)?'':'1';})()")
 
 
 # ------------------------------------------------------------------ plain helpers (tested without any browser)
@@ -175,12 +183,33 @@ def _dismiss(b):
         time.sleep(0.6)
 
 
+def _invite_plain(b, cand, dialog):
+    """The user asked for the plain connection request, no note: « Send without a note » (some accounts send at once, then the button turns into Pending)."""
+    if not dialog:
+        return "ok" if _wait(lambda: b.js(gone_js(cand["sel"])), 5) else "LinkedIn n'a pas valide l'envoi"
+    bad = blocker({"url": "", "title": "", "body": dialog.get("text", "")})
+    if bad:
+        _dismiss(b)
+        raise Stop(bad)
+    send_btn = b.js(tag_js("plain"))
+    if not send_btn:
+        _dismiss(b)
+        return "bouton envoyer introuvable"
+    b.call("click", selector=send_btn)
+    if _wait(lambda: not _dialog(b), 8):
+        return "ok"
+    _dismiss(b)
+    return "LinkedIn n'a pas valide l'envoi"
+
+
 def invite_one(b, cand, note):
     """One person: Connect, Add a note, write it, Send. Returns 'ok', or a short reason when it did not go through. Raises Stop when the job must end."""
     if _dialog(b):
         _dismiss(b)
     b.call("click", selector=cand["sel"])
     dialog = _wait(lambda: _dialog(b), 6)
+    if not note:
+        return _invite_plain(b, cand, dialog)
     if not dialog:
         raise Stop(f"LinkedIn n'a pas ouvert la fenetre de note pour {cand.get('name') or 'cette personne'} : je m'arrete pour ne pas envoyer d'invitation sans note. "
                    "Regarde sur /connexion si l'invitation est partie.")
@@ -277,7 +306,7 @@ def _run(chat_id, kw, template, want):
     finally:
         db.delete(JOB_KEY)
         db.delete(STOP_KEY)
-    lines = [f"LinkedIn : {len(sent)} invitation(s) envoyee(s) avec ta note" + (f" (sur {want} demandees)." if len(sent) < want else ".")]
+    lines = [f"LinkedIn : {len(sent)} invitation(s) envoyee(s) " + ("avec ta note" if template else "sans note") + (f" (sur {want} demandees)." if len(sent) < want else ".")]
     if names:
         lines.append("A : " + ", ".join(names[:40]))
     if reason:
@@ -297,7 +326,7 @@ def _check(keywords, note, count):
     template = re.sub(r"[ \t]+", " ", str(note or "")).strip()
     if not kw:
         return {"erreur": "dis-moi qui chercher (par exemple : YC founder)"}, None
-    if len(template) < 20:
+    if template and len(template) < 20:
         return {"erreur": "il faut une note d'au moins 20 caracteres : ecris-la avec l'utilisateur, puis relance"}, None
     if len(template.replace("{prenom}", "X" * 20)) > NOTE_MAX:
         return {"erreur": f"la note est trop longue : LinkedIn accepte {NOTE_MAX} caracteres au maximum"}, None
@@ -320,8 +349,9 @@ def propose(chat_id, keywords, note, count=30):
         return bad
     kw, template, want = job
     db.set(PENDING_KEY, json.dumps({"chat": chat_id, "kw": kw, "note": template, "want": want}), ex=900)
-    return {"statut": "a_confirmer", "invitations_prevues": want, "note_exemple": make_note(template, "Alex"),
-            "dis_a_l_utilisateur": f"Je suis pret : j'invite {want} personnes (recherche « {kw} ») avec cette note, sans rien changer :\n« {template} »\n"
+    what = f"avec cette note, sans rien changer :\n« {template} »\n" if template else "SANS note (juste la demande de connexion).\n"
+    return {"statut": "a_confirmer", "invitations_prevues": want, "note_exemple": make_note(template, "Alex") if template else "(sans note)",
+            "dis_a_l_utilisateur": f"Je suis pret : j'invite {want} personnes (recherche « {kw} ») " + what +
                                    "Rien n'est envoye pour l'instant. Dis OUI pour lancer, ou dis-moi quoi changer."}
 
 
@@ -347,8 +377,8 @@ def start(chat_id, keywords, note, count=30):
     db.delete(STOP_KEY)
     db.set(JOB_KEY, json.dumps({"kw": kw, "want": want, "sent": 0}), ex=7200)
     _spawn(chat_id, kw, template, want)
-    sample = make_note(template, "Alex")
+    sample = make_note(template, "Alex") if template else "(sans note)"
     minutes = int(want * sum(PAUSE) / 2 / 60) + 1
     return {"statut": "lance en arriere-plan", "invitations_prevues": want, "duree_environ_minutes": minutes, "note_exemple": sample,
-            "dis_a_l_utilisateur": f"C'est parti : {want} invitations avec ta note, environ {minutes} minutes, une toutes les minutes pour ne pas risquer ton compte. "
+            "dis_a_l_utilisateur": f"C'est parti : {want} invitations " + ("avec ta note" if template else "sans note") + f", environ {minutes} minutes, une toutes les minutes pour ne pas risquer ton compte. "
                                    "Je te previens a la fin. Dis « stop linkedin » pour arreter. LinkedIn n'aime pas les envois automatiques : c'est ton choix, et je m'arrete a la moindre alerte."}

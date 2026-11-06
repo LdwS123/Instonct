@@ -310,3 +310,106 @@ def test_looking_and_stopping_are_always_allowed():
     assert kit_linkedin.linkedin_inviter(42, {"action": "etat"})["en_cours"] is False
     assert "aucune" in kit_linkedin.linkedin_inviter(42, {"action": "stop"})["resultat"]
     assert "erreur" in kit_linkedin.linkedin_inviter(42, {"action": "danser"})
+
+
+# ---------------------------------------------------------------- the plain connection request (no note), asked on 2026-11-06
+class PlainLinkedIn(FakeLinkedIn):
+    """Same fake LinkedIn, but the dialog offers « Send without a note » (or, with instant=True, no dialog: the account sends at once)."""
+
+    def __init__(self, pages, instant=False, dialog_text="", no_button=False, **kw):
+        super().__init__(pages, **kw)
+        self.instant, self.dialog_text, self.no_button = instant, dialog_text, no_button
+
+    def call(self, tool, **a):
+        if tool == "click" and a["selector"].startswith("[data-lpi="):
+            self.clicks += 1
+            n = int(re.search(r'"(\d+)"', a["selector"]).group(1))
+            person = self.pages[self.page][n - 1]
+            if self.instant:
+                self.sent.append((person, ""))
+            else:
+                self.dialog = {"person": person, "textarea": False, "text": self.dialog_text}
+            return ""
+        if tool == "click" and a["selector"] == "PLAIN":
+            self.sent.append((self.dialog["person"], ""))
+            self.dialog = None
+            return ""
+        return super().call(tool, **a)
+
+    def js(self, script):
+        marker = re.match(r"/\*([a-z:]+)\*/", script).group(1)
+        if marker == "tag:plain":
+            return "PLAIN" if self.dialog and not self.no_button else ""
+        if marker == "gone":
+            return "1" if self.sent else ""
+        return super().js(script)
+
+
+@pytest.fixture
+def plain(monkeypatch, fake):
+    def install(**kw):
+        said = fake(pages={})[1]                                          # the silent Telegram / no-pause patches
+        b = PlainLinkedIn(**kw)
+        monkeypatch.setattr("instonct.linkedin_invite._driver", lambda: b)
+        return b, said
+    return install
+
+
+def test_plain_requests_go_out_without_any_note(plain):
+    b, said = plain(pages={1: people(4)})
+    li._run(1, "YC founder", "", 3)
+    assert len(b.sent) == 3 and all(note == "" for _, note in b.sent)
+    assert len({p[1] for p, _ in b.sent}) == 3 and li.counted_today() == 3 and "sans note" in said[-1]
+
+
+def test_an_account_that_sends_at_once_is_checked_not_assumed(plain):
+    b, _ = plain(pages={1: people(3)}, instant=True)
+    li._run(1, "YC founder", "", 2)
+    assert len(b.sent) == 2 and li.counted_today() == 2
+
+
+def test_no_send_button_means_nothing_sent_and_the_job_says_so(plain):
+    b, said = plain(pages={1: people(5)}, no_button=True)
+    li._run(1, "YC founder", "", 5)
+    assert b.sent == [] and li.counted_today() == 0 and said
+
+
+def test_the_weekly_limit_dialog_stops_a_plain_job(plain):
+    b, said = plain(pages={1: people(3)}, dialog_text="You have reached the weekly invitation limit")
+    li._run(1, "YC founder", "", 3)
+    assert b.sent == [] and "limite" in said[-1]
+
+
+def test_a_short_note_is_still_refused_but_no_note_is_fine():
+    assert "erreur" in li._check("YC founder", "trop court", 5)[0]
+    assert li._check("YC founder", "", 5)[0] is None
+
+
+def test_the_user_sees_that_there_is_no_note_before_saying_yes(monkeypatch):
+    launched = []
+    monkeypatch.setattr("instonct.linkedin_invite._spawn", lambda *a: launched.append(a))
+    monkeypatch.setattr("instonct.linkedin.logged_in", lambda: True)
+    token = guard.begin_turn(42, "Tu peux envoyer 10 demande de connexion à 10 founder yc sans note juste la demande de connexion")
+    try:
+        forgot = kit_linkedin.linkedin_inviter(42, {"action": "lancer", "recherche": "YC founder", "nombre": 10})
+        assert "sans_note" in forgot["erreur"] and not db.exists(li.PENDING_KEY)            # the model may not drop the note silently
+        r = kit_linkedin.linkedin_inviter(42, {"action": "lancer", "recherche": "YC founder", "sans_note": True, "nombre": 10})
+    finally:
+        guard.end_turn(token)
+    assert r["statut"] == "a_confirmer" and "SANS note" in r["dis_a_l_utilisateur"] and "OUI" in r["dis_a_l_utilisateur"] and launched == []
+    token = guard.begin_turn(42, "oui")
+    try:
+        r = kit_linkedin.linkedin_inviter(42, {"action": "lancer"})
+    finally:
+        guard.end_turn(token)
+    assert r["statut"] == "lance en arriere-plan" and launched[0][1:4] == ("YC founder", "", 10) and "sans note" in r["dis_a_l_utilisateur"]
+
+
+def test_the_words_the_user_really_used_bring_the_tool_and_the_permission():
+    """The 2026-11-06 failure: no « linkedin » in the message, so the tool was never offered and the bot said « impossible »."""
+    from instonct import catalog
+    for said in ("Tu peux envoyer 10 demande de connexion à 10 founder yc sans note juste la demande de connexion",
+                 "envoie 20 demandes de connexion à des YC founders", "ajoute des fondateurs yc"):
+        names = {t["function"]["name"] for t in catalog.select_tools(said)}
+        assert "linkedin_inviter" in names, said
+        assert guard._ordered(guard._VERBS["linkedin_invite"], guard._simplify(said)), said

@@ -247,7 +247,7 @@ LIFE_TOOLS = {"routine_save", "routine_run", "routine_list", "routine_delete", "
 
 _PART_TOOLS = {"mail": {"mail_list"}, "agenda": {"calendar_list"}, "perso": {"suivi", "depenses", "dates", "carnet", "calcul", "video_texte", "reglage"},
                "media": {"play_music", "tv_remote", "show_remote", "generate_image", "find_image", "send_photo", "favorite_add", "say_aloud"},
-               "life": {"routine_save", "list_add", "morning_briefing"}, "plan": {"demarche", "appel"}}
+               "life": {"routine_save", "list_add", "morning_briefing"}, "plan": {"demarche", "appel"}, "ecran": {"ecran"}}
 # These two sections explain tools that are always offered, so they are chosen from the words of the request.
 _PART_WORDS = {"browser": r"site|navig|\bpage|formulaire|scrap|connecte|login|http|www|\.com|\.fr|reserv|commande|surveill|\bprix|clique|remplis|achete",
                "plan": r"organise|prepare|compare|planifie|trouve.moi|\bpuis\b|ensuite|voyage|billet|conteste|procedure|etapes",

@@ -9,13 +9,14 @@ from .kit_base import spec, text, whole
 
 GROUPS = [
     (r"(?:linkedin|linked in).*(?:ajout|invit|connect|relation|reseau|note|founder|fondateur|contact)|(?:ajout|invit|connect).*(?:linkedin|linked in)|"
-     r"\byc founders?|\binvitations? linkedin|stop linkedin|arrete.*invitations",
+     r"\byc founders?|\bfounders? yc\b|\bfondateurs? yc\b|\byc fondateurs?|demandes? de connexion|demandes? (?:de )?(?:contact|relation)|"
+     r"\binvitations? linkedin|stop linkedin|arrete.*invitations",
      {"linkedin_inviter"}),
 ]
 SPECS = [
     spec("linkedin_inviter",
-         "Invitations LinkedIn AVEC note, en vrai Chromium connecte. action : lancer (montre la note, attend le OUI), etat, stop. {prenom} = son prenom.",
-         action="string!", recherche="string", note="string", nombre="integer"),
+         "Demandes de connexion LinkedIn, avec note ou SANS note (sans_note=true). action : lancer (montre le plan, attend le OUI), etat, stop. {prenom}=prenom.",
+         action="string!", recherche="string", note="string", sans_note="boolean", nombre="integer"),
 ]
 
 
@@ -46,7 +47,11 @@ def linkedin_inviter(chat_id, a):
         known = screen.active()
     if not known:
         return {"erreur": "LinkedIn n'est pas connecte dans mon navigateur. Dis a l'utilisateur de faire /connexion linkedin et de se connecter LUI-MEME (jamais de mot de passe dans le chat), puis de te redemander."}
-    return linkedin_invite.propose(chat_id, text(a, "recherche", "", 80), text(a, "note", "", 400), whole(a, "nombre", 30, 1, 100))
+    plain = str(a.get("sans_note", "")).lower() in ("true", "1", "oui", "yes")
+    note = "" if plain else text(a, "note", "", 400)
+    if not plain and not note:
+        return {"erreur": "il faut une note (ecris-la avec l'utilisateur) ; s'il veut juste la demande de connexion, sans note : relance avec sans_note=true"}
+    return linkedin_invite.propose(chat_id, text(a, "recherche", "", 80), note, whole(a, "nombre", 30, 1, 100))
 
 
 FUNCS = {"linkedin_inviter": linkedin_inviter}
