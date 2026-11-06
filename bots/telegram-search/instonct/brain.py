@@ -100,6 +100,10 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 out = {"erreur": "assez cherche : reponds avec ce que tu as, et dis clairement ce que tu n'as pas trouve"}
             else:
                 out = dispatch.run_tool(chat_id, c["function"]["name"], args, links)
+            if name == "chercher_outil" and out.get("outils_ajoutes"):
+                have = {x["function"]["name"] for x in toolset}       # a new list: toolset may be the shared full list
+                new = {o["nom"] for o in out["outils_ajoutes"]} - have
+                toolset = toolset + [x for x in catalog.every_tool() if x["function"]["name"] in new]
             if "erreur" not in out:                   # a tool that failed did nothing: "c'est fait" stays a false claim
                 ran.add(name)
             drafted = drafted or (c["function"]["name"] == "mail_send" and "statut" in out)

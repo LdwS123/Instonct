@@ -233,6 +233,8 @@ TOOLS = [{"functionDeclarations": [
      "parameters": {"type": "object", "properties": {"annee": {"type": "integer"}}}},
     {"name": "prepare_entretien", "description": "Rassemble ce qu'il faut pour preparer un entretien avec une entreprise : le rendez-vous, les mails echanges, ce qu'elle fait, son actualite.",
      "parameters": {"type": "object", "properties": {"entreprise": {"type": "string"}}, "required": ["entreprise"]}},
+    {"name": "chercher_outil", "description": "Cherche dans TOUS tes outils ceux qui servent a un besoin et te les donne tout de suite. A appeler quand aucun outil ne convient, AVANT de dire que tu ne peux pas.",
+     "parameters": {"type": "object", "properties": {"besoin": {"type": "string"}}, "required": ["besoin"]}},
 ]}]
 
 
@@ -354,7 +356,33 @@ TOOL_GROUPS = [
     (r"matin|briefing|resume du jour|chaque jour|reveil|habitude|appris|connais", {"morning_briefing", "habits"}),
 ]
 CORE_TOOLS = {"run_command", "python_run", "read_file", "write_file", "http_request", "web_search", "fetch_url", "browser", "remember", "forget",
-              "send_file", "set_reminder", "schedule_task", "todo_add", "todo_list", "todo_done", "get_status", "weather", "wikipedia", "mail_index", "chat_search"}
+              "send_file", "set_reminder", "schedule_task", "todo_add", "todo_list", "todo_done", "get_status", "weather", "wikipedia", "mail_index", "chat_search", "chercher_outil"}
+
+
+_STOP = {"avec", "pour", "dans", "mais", "sans", "tout", "tous", "plus", "faire", "fais", "veux", "peux", "peut", "mon", "mes", "une", "des", "les", "qui", "que", "quoi", "est", "sur", "par", "pas", "outil", "utilisateur"}
+
+
+def every_tool():
+    """All the tools there are, kit tools included (the full list is too big to send: the model asks for what it needs with chercher_outil)."""
+    return GROQ_TOOLS + kit_parts()[0]
+
+
+def find_tools(need, limit=5):
+    """The tools that fit a need, best first: the keyword groups of select_tools (they know the vocabulary) and the words of each tool's name and description."""
+    t = norm(need)
+    words = {w for w in re.findall(r"[a-z0-9]{4,}", t) if w not in _STOP}
+    kit_tools, kit_groups = kit_parts()
+    scores = {}
+    for pattern, group in TOOL_GROUPS + kit_groups:
+        if re.search(pattern, t):
+            for name in group:
+                scores[name] = scores.get(name, 0) + 3
+    tools = {x["function"]["name"]: x["function"] for x in GROQ_TOOLS + kit_tools}
+    for name, fn in tools.items():
+        hay = norm(name.replace("_", " ") + " " + fn.get("description", ""))
+        scores[name] = scores.get(name, 0) + sum(1 for w in words if w in hay or w[:5] in hay)
+    ranked = sorted((n for n, sc in scores.items() if sc > 0 and n in tools and n != "chercher_outil"), key=lambda n: (-scores[n], n))
+    return [{"type": "function", "function": tools[n]} for n in ranked[:limit]]
 
 
 def select_tools(text):

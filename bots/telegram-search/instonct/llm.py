@@ -235,7 +235,7 @@ def model_command(chat_id, arg):
 
 REFUSAL = re.compile(r"\b(je ne peux pas|je n.?ai pas (la possibilit|acc[eè]s|les moyens)|je suis (incapable|dans l.impossibilit)|impossible de|"
                      r"je ne suis pas (capable|en mesure)|i can.?t|i cannot|i am unable|i.m unable|not able to)", re.I)
-NUDGE = ("[Systeme] Avant de dire que tu ne peux pas : cherche une voie avec tes outils (run_command, python_run, browser, fetch_url, http_request, "
+NUDGE = ("[Systeme] Avant de dire que tu ne peux pas : appelle chercher_outil(besoin), puis cherche une voie avec tes outils (run_command, python_run, browser, fetch_url, http_request, "
          "write_file) et essaie vraiment. Si c'est reellement impossible (materiel absent, ou ca demande la validation de l'utilisateur), "
          "explique precisement pourquoi en une phrase et propose la meilleure alternative. Les validations Oui/Non restent obligatoires.")
 MAX_STEPS = 16

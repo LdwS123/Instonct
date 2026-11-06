@@ -36,6 +36,12 @@ def _run_tool(chat_id, name, args, links):
         from . import kits                      # lazy: kits reaches modules that import this one
         if name in kits.NAMES:
             return kits.tool(chat_id, name, args, links)
+        if name == "chercher_outil":
+            found = catalog.find_tools(str(args.get("besoin", "")))
+            if not found:
+                return {"erreur": "aucun outil ne correspond : essaie run_command, python_run, browser, fetch_url ou http_request pour le faire toi-meme"}
+            return {"outils_ajoutes": [{"nom": x["function"]["name"], "sert_a": x["function"].get("description", "")[:110]} for x in found],
+                    "suite": "ils sont disponibles maintenant : appelle le bon tout de suite"}
         if name == "show_remote":
             television.send_remote(chat_id)
             return {"resultat": "telecommande affichee dans le chat"}
