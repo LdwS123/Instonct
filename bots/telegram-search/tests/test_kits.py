@@ -61,6 +61,8 @@ SAYINGS = {
     # web scraping
     "scraper": "scrape les prix de cette page", "crawler": "crawl tout le site exemple.fr",
     "sitemap_lire": "lis le sitemap de exemple.fr", "capture_page": "fais une capture d'ecran de cette page",
+    "crawl_gros": "fais un gros crawl avec scrapy de ce site, des centaines de pages", "aspirer_js": "lis ce site en javascript avec crawl4ai et donne le en markdown",
+    "selecteur_adaptatif": "memorise le prix de cette page avec scrapling pour le retrouver apres une refonte",
 }
 
 
