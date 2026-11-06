@@ -29,6 +29,9 @@ _VERBS = {
     "calendar_delete": _DELETE + r"|\bannule",
     "forget": _DELETE + r"|\boublie",
     "cancel_tasks": _DELETE + r"|\bannule|\barrete|\bstop",
+    "docker_start": r"\binstall|\blance|\bdemarr|\bmets?\b|\bmettre|\ballume|\bdeploie|\bajoute|\bstart|\bactive|\bcree|\brelance|\brestart|\bredemarr|\bessaie|\bsetup",
+    "docker_stop": r"\barrete|\bstop|\beteins|\bcoupe|\bferme|\bdesactive",
+    "docker_remove": _DELETE + r"|\bdesinstall|\buninstall",
 }
 MAIL_ACTIONS = ("delete", "spam", "archive", "read", "unread", "star", "unstar")
 _NEGATION = re.compile(r"\b(?:ne|n|pas|jamais|sans|arrete de|arretes de|evite de|si|pourquoi|comment|qui a|t.?as|tu as|as.tu|a ete|ont ete|j.?ai|on a|avais|avait)\b")

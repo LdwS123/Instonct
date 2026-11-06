@@ -24,6 +24,27 @@ SAYINGS = {
     "pret": "mensualite d'un pret immobilier", "interets": "combien rapporte mon epargne avec les interets", "partage_note": "on divise l'addition entre 4",
     "tirage": "tire au sort un nom", "pomodoro": "lance un pomodoro", "ytdl": "telecharge la video youtube en mp3", "voice_note": "envoie-moi ca en message vocal",
     "transcribe_file": "transcris cet audio", "image_edit": "redimensionne cette image", "pdf_outils": "fusionne ces deux pdf",
+    # docker and the catalogue of public APIs
+    "docker_apps": "quelles apps docker je peux installer", "docker_app": "installe whoami avec docker", "docker_logs": "montre les logs du conteneur whoami",
+    "api_search": "y a-t-il une api gratuite pour la meteo",
+    # leisure
+    "recette": "une recette de pates arrabiata", "cocktail": "recette de cocktail mojito", "pokemon": "infos sur pikachu", "trivia": "pose-moi une question de culture generale",
+    "blague": "raconte-moi une blague", "animal": "montre-moi un chien", "citation": "donne-moi une citation", "carte_magic": "carte magic black lotus",
+    "serie_tv": "infos sur la serie breaking bad", "jeux_gratuits": "quels jeux gratuits sur epic games", "prix_jeux": "prix du jeu portal sur steam",
+    "musique_itunes": "cherche la chanson get lucky", "ghibli": "les films ghibli",
+    # developers and exact helpers
+    "package_info": "derniere version de express sur npm", "cve_search": "details de la faille CVE-2021-44228", "dev_news": "les actus tech de hacker news",
+    "stack_search": "cherche sur stackoverflow comment faire un decorator", "github_tendances": "les tendances github de la semaine", "arxiv_search": "cherche un article sur arxiv",
+    "ip_info": "d'ou vient l'ip 8.8.8.8", "wayback": "ancienne version du site exemple.fr sur archive.org", "cert_subdomains": "liste les sous-domaines de exemple.fr",
+    "regex_test": "teste cette regex sur un texte", "json_outils": "valide ce json", "date_calc": "combien de jours entre le 1er janvier et le 14 juillet",
+    "color_info": "quel est le contraste de la couleur #ff8800", "nombres": "est-ce que 97 est premier", "unites": "convertis 5 miles en km",
+    "csv_outils": "moyenne de la colonne prix du csv", "archive_outils": "dezippe cette archive zip",
+    # France and the physical world
+    "commune_fr": "combien d'habitants a Lyon", "adresse_fr": "trouve l'adresse 10 rue de rivoli paris", "entreprise_fr": "cherche l'entreprise ovh",
+    "electricite_fr": "la production d'electricite en france", "carburant_fr": "prix du gazole a Lyon", "code_postal": "quel est le code postal de 69001",
+    "elevation": "quelle est l'altitude de Grenoble", "marine": "etat de la mer a Marseille", "pollen": "niveau de pollen a Lyon",
+    "meteo_historique": "meteo passee de Paris le 1er juillet", "space_launches": "les prochains lancements de fusees", "molecule": "formule chimique de la cafeine",
+    "nutrition": "nutri-score du produit 3017620422003", "image_libre": "cherche une image libre de droits de la tour eiffel",
 }
 
 
