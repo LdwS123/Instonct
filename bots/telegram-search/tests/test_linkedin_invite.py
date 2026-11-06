@@ -470,3 +470,13 @@ def test_the_read_only_linkedin_tool_does_not_pretend_to_send():
     for action in ("lancer", "inviter", "envoyer", "connect"):
         out = linkedin.tool({"action": action, "keywords": "YC founder"})
         assert "erreur" in out and "linkedin_inviter" in out["erreur"]
+
+
+def test_a_refused_linkedin_call_does_not_lock_the_inviter(monkeypatch):
+    from instonct import dispatch
+    links = []
+    out = dispatch._run_tool(1, "linkedin", {"action": "lancer"}, links)
+    assert "erreur" in out and links == []
+    monkeypatch.setattr(linkedin, "tool", lambda args: {"texte": "une page"})
+    dispatch._run_tool(1, "linkedin", {"action": "page"}, links)
+    assert links == ["(page web)"]

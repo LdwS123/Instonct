@@ -142,8 +142,10 @@ def _run_tool(chat_id, name, args, links):
             links.append("(archive)")           # old messages can quote mails or web pages
             return chatlog.search(chat_id, str(args.get("query", "")), args.get("limit") or 8)
         if name == "linkedin":
-            links.append("(page web)")
-            return linkedin.tool(args)
+            out = linkedin.tool(args)
+            if "erreur" not in out:             # a refused call read nothing: it must not lock the invitation tool for the rest of the turn
+                links.append("(page web)")
+            return out
         if name in ("mail_list", "mail_read", "mail_search"):
             links.append("(email lu)")          # contenu externe : marque la conversation comme "sensible"
             if name == "mail_search":
