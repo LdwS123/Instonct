@@ -653,3 +653,32 @@ def test_url_ok_rejects_two_parser_tricks(monkeypatch):
     assert web.url_ok("https://exemple.fr/chemin?q=a b") and web.url_ok("https://exemple.fr/a")
     for bad in ("https://user:pw@exemple.fr/", "https://exemple.fr\\@192.168.1.1/", "https://exemple.fr\t@x/", "https://exemple.fr /x", "https://exemple.fr/\r\nX: y"):
         assert not web.url_ok(bad), bad
+
+
+def test_a_real_dripping_socket_is_cut_at_the_deadline(monkeypatch):
+    import socket
+    import threading
+    import time
+    from instonct import kit_seo
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+
+    def serve():
+        c, _ = srv.accept()
+        c.recv(4096)
+        c.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 100000\r\n\r\n<html>")
+        for _ in range(40):                                      # one byte every 0.25 s: never idle long enough for the per-read timeout
+            time.sleep(0.25)
+            try:
+                c.sendall(b"x")
+            except OSError:
+                return
+
+    threading.Thread(target=serve, daemon=True).start()
+    monkeypatch.setattr(kit_seo, "READ_SECONDS", 0.5)
+    monkeypatch.setattr("instonct.web.url_ok", lambda u: True)
+    t0 = time.time()
+    out = kit_seo.seo_audit(1, {"url": f"http://127.0.0.1:{srv.getsockname()[1]}/"})
+    srv.close()
+    assert time.time() - t0 < 4 and ("erreur" in out or out["ko"] < 1)

@@ -5,6 +5,7 @@ Everything read from outside is named in TAINT. Heavy modules (llm) are imported
 """
 
 import re
+import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -96,11 +97,25 @@ def _status(url):
         return 0
 
 
+def _cut(r):
+    """Ends a read that is blocked on a slow server. close() alone does not wake a thread waiting in recv (checked against a real dripping socket): shutdown does."""
+    for path in (("_connection", "sock"), ("_fp", "fp", "raw", "_sock")):
+        try:
+            sock = r.raw
+            for name in path:
+                sock = getattr(sock, name)
+            sock.shutdown(socket.SHUT_RDWR)
+            break
+        except (AttributeError, OSError):
+            continue
+    r.close()
+
+
 def _read(url):
     """(response, body, ms) of a public page. Every redirect is checked (web.safe_get), the body is read as it comes with a size and time limit, never decompressed."""
     t0 = time.time()
     r = web.safe_get(url, timeout=15, stream=True, headers={**AGENT, "Accept-Encoding": "identity"})
-    cutter = threading.Timer(READ_SECONDS, r.close)       # a server that drips one byte at a time: closing the connection from outside ends the blocked read
+    cutter = threading.Timer(READ_SECONDS, _cut, (r,))       # a server that drips one byte at a time: closing the connection from outside ends the blocked read
     cutter.start()
     try:
         if (r.headers.get("Content-Encoding") or "identity").lower() != "identity":
