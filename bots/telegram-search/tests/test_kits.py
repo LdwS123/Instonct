@@ -58,6 +58,9 @@ SAYINGS = {
     "qr_lire": "lis le qr code de cette image", "schema": "dessine un organigramme de mon equipe",
     "chercher_fichiers": "retrouve le fichier qui contient le mot facture", "doublons": "cherche mes fichiers en double",
     "sante_machine": "est-ce que le mac mini chauffe", "trace_route": "fais un traceroute vers exemple.fr",
+    # web scraping
+    "scraper": "scrape les prix de cette page", "crawler": "crawl tout le site exemple.fr",
+    "sitemap_lire": "lis le sitemap de exemple.fr", "capture_page": "fais une capture d'ecran de cette page",
 }
 
 
