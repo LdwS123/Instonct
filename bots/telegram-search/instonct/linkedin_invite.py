@@ -25,6 +25,7 @@ PAUSE = (35, 80)                # seconds between two invitations
 MAX_PAGES = 6
 JOB_KEY = "linkedin:invite:job"
 STOP_KEY = "linkedin:invite:stop"
+PENDING_KEY = "linkedin:invite:pending"
 DONE_KEY = "linkedin:invite:done"           # profile addresses already invited: never twice
 SKIP_KEY = "linkedin:invite:skip"
 SEARCH = "https://www.linkedin.com/search/results/people/?keywords={kw}&network=%5B%22S%22%2C%22O%22%5D&origin=FACETED_SEARCH&page={page}"
@@ -290,24 +291,59 @@ def _spawn(*args):
     threading.Thread(target=_run, args=args, daemon=True).start()
 
 
-def start(chat_id, keywords, note, count=30):
-    """Checks everything that can be checked without the browser, then runs the job in the background."""
+def _check(keywords, note, count):
+    """Everything that can be checked without the browser: (error, None) or (None, (keywords, note, how many))."""
     kw = re.sub(r"\s+", " ", str(keywords or "")).strip()[:80]
     template = re.sub(r"[ \t]+", " ", str(note or "")).strip()
     if not kw:
-        return {"erreur": "dis-moi qui chercher (par exemple : YC founder)"}
+        return {"erreur": "dis-moi qui chercher (par exemple : YC founder)"}, None
     if len(template) < 20:
-        return {"erreur": "il faut une note d'au moins 20 caracteres : ecris-la avec l'utilisateur, puis relance"}
+        return {"erreur": "il faut une note d'au moins 20 caracteres : ecris-la avec l'utilisateur, puis relance"}, None
     if len(template.replace("{prenom}", "X" * 20)) > NOTE_MAX:
-        return {"erreur": f"la note est trop longue : LinkedIn accepte {NOTE_MAX} caracteres au maximum"}
+        return {"erreur": f"la note est trop longue : LinkedIn accepte {NOTE_MAX} caracteres au maximum"}, None
+    if re.search(r"https?://|www\.|\b[\w-]+\.(?:com|io|co|fr|ai|app|dev|me|ly)\b", template, re.I):
+        return {"erreur": "pas de lien dans la note : LinkedIn bloque les comptes qui en envoient. Enleve-le."}, None
     if db.exists(JOB_KEY):
-        return {"erreur": "des invitations sont deja en cours : dis stop pour les arreter"}
+        return {"erreur": "des invitations sont deja en cours : dis stop pour les arreter"}, None
     if db.exists(linkedin.STOP_KEY):
-        return {"erreur": "LinkedIn a demande de ralentir : je reessaie plus tard, pas avant une heure"}
+        return {"erreur": "LinkedIn a demande de ralentir : je reessaie plus tard, pas avant une heure"}, None
     room = budget()
     if room <= 0:
-        return {"erreur": f"limite atteinte ({DAY_MAX} par jour, {WEEK_MAX} par semaine) : je reprends demain"}
-    want = max(1, min(int(count or 30), room))
+        return {"erreur": f"limite atteinte ({DAY_MAX} par jour, {WEEK_MAX} par semaine) : je reprends demain"}, None
+    return None, (kw, template, max(1, min(int(count or 30), room)))
+
+
+def propose(chat_id, keywords, note, count=30):
+    """Step 1: nothing is sent. The exact note and the audience are kept and shown; only a plain yes from the user starts them (see confirm)."""
+    bad, job = _check(keywords, note, count)
+    if bad:
+        return bad
+    kw, template, want = job
+    db.set(PENDING_KEY, json.dumps({"chat": chat_id, "kw": kw, "note": template, "want": want}), ex=900)
+    return {"statut": "a_confirmer", "invitations_prevues": want, "note_exemple": make_note(template, "Alex"),
+            "dis_a_l_utilisateur": f"Je suis pret : j'invite {want} personnes (recherche « {kw} ») avec cette note, sans rien changer :\n« {template} »\n"
+                                   "Rien n'est envoye pour l'instant. Dis OUI pour lancer, ou dis-moi quoi changer."}
+
+
+def confirm(chat_id):
+    """Step 2: starts the job the user saw, word for word. None when nothing is waiting. The model's own words are never used here."""
+    raw = db.get(PENDING_KEY)
+    try:
+        job = json.loads(raw) if raw else None
+    except ValueError:
+        job = None
+    if not job or job.get("chat") != chat_id:
+        return None
+    db.delete(PENDING_KEY)
+    return start(chat_id, job["kw"], job["note"], job["want"])
+
+
+def start(chat_id, keywords, note, count=30):
+    """Runs the job in the background (only propose + confirm lead here)."""
+    bad, job = _check(keywords, note, count)
+    if bad:
+        return bad
+    kw, template, want = job
     db.delete(STOP_KEY)
     db.set(JOB_KEY, json.dumps({"kw": kw, "want": want, "sent": 0}), ex=7200)
     _spawn(chat_id, kw, template, want)

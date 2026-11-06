@@ -10,7 +10,7 @@ from datetime import timedelta
 from email.utils import parsedate_to_datetime
 import time
 
-from . import mailslot, mailtriage
+from . import ics, mailslot, mailtriage
 from .core import db, log, scrub
 from . import callbacks
 
@@ -136,6 +136,13 @@ def _mail_folders(c, gmail):
     return out[:15]
 
 
+def hour_hint(query):
+    """What to tell the model when a mail search is about an interview: this list never holds the hour."""
+    if re.search(r"interview|entretien|rendez|rdv|visio|meeting|recruit|candidat", query or "", re.I):
+        return "Cette liste ne donne PAS l'heure d'un entretien. Appelle rdv_a_venir (il lit les mails ET les fichiers .ics joints) ou mail_read, puis recopie 'quand'. N'invente jamais une heure."
+    return ""
+
+
 def mail_search(query, days=365):
     """Recherche large : tous les dossiers de toutes les boites, dans l'en-tete ET le texte. D'abord tous les mots, sinon l'un des mots."""
     import email
@@ -211,6 +218,8 @@ def mail_search(query, days=365):
     res = {"emails": emails or "aucun email trouve", "cherche": f"{folders_done} dossier(s), {len(accounts)} boite(s), mots : {', '.join(words)} ({mode})"}
     if not emails:
         res["conseil"] = "retente avec d'autres mots-cles (nom de l'entreprise, de la personne, du site) ou days=0 pour chercher depuis toujours"
+    if emails and hour_hint(ascii_q):
+        res["pour_l_heure"] = hour_hint(ascii_q)
     if errs:
         res["erreurs"] = errs
     return res
@@ -272,11 +281,14 @@ def mail_read(uid):
                         pass
             liens = _mail_links(" ".join(raw_txt))
             body = re.sub(r"\s+", " ", text).strip()
+            invite = ics.line(ics.of_message(m))
+            if invite:
+                body = f"{invite} {body}"
             de, sujet = _mail_dec(m["From"])[:80], _mail_dec(m["Subject"])[:120]
             t = _tri(de, sujet, m, body + (" invitation .ics" if any(f.lower().endswith(".ics") for f in files) else ""))
             return {"de": de, "a": _mail_dec(m["To"])[:80], "sujet": sujet,
                     "envoye_le": (m["Date"] or "")[:31], "pieces_jointes": files or "aucune",
-                    "rendez_vous": _slot_words(sujet, text, m["Date"]),
+                    "rendez_vous": _slot_words(sujet, f"{invite} {text}", m["Date"]),
                     "tri": f"{t['niveau'].upper()} - {t['label']} ({t['raison']})",
                     "liens": liens or "aucun", "texte": body[:4000]}
         finally:
@@ -549,7 +561,13 @@ def mail_clean(days=30, limit=100, dry_run=False):
 
 
 def _body_text(m):
-    """Texte lisible d'un mail (texte brut, sinon HTML sans balises)."""
+    """Texte lisible d'un mail (texte brut, sinon HTML sans balises). L'heure du fichier .ics joint passe en premier : elle est souvent la seule vraie."""
+    invite = ics.line(ics.of_message(m))
+    text = _plain_text(m)
+    return f"{invite} {text}".strip() if invite else text
+
+
+def _plain_text(m):
     text = ""
     for ctype in ("text/plain", "text/html"):
         for part in m.walk():

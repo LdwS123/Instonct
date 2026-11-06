@@ -236,7 +236,63 @@ def test_the_model_cannot_invite_anyone_unless_the_user_asked(monkeypatch):
         r = kit_linkedin.linkedin_inviter(42, args)
     finally:
         guard.end_turn(token)
-    assert r["statut"] == "lance en arriere-plan" and len(launched) == 1 and launched[0][1:3] == ("YC founder", NOTE)
+    assert r["statut"] == "a_confirmer" and NOTE in r["dis_a_l_utilisateur"] and "OUI" in r["dis_a_l_utilisateur"]
+    assert launched == []                                          # step 1 sends nothing and starts nothing
+
+
+def test_only_the_users_plain_yes_starts_exactly_the_note_he_saw(monkeypatch):
+    launched = []
+    monkeypatch.setattr("instonct.linkedin_invite._spawn", lambda *a: launched.append(a))
+    monkeypatch.setattr("instonct.linkedin.logged_in", lambda: True)
+    token = guard.begin_turn(42, "ajoute 30 YC founders sur LinkedIn avec une petite note")
+    try:
+        kit_linkedin.linkedin_inviter(42, {"action": "lancer", "recherche": "YC founder", "note": NOTE, "nombre": 30})
+    finally:
+        guard.end_turn(token)
+    for chat, question, taint in ((99, "oui", False), (42, "oui", True), (42, "pourquoi pas", False)):     # another chat, a turn read from a file, not a plain yes
+        token = guard.begin_turn(chat, question, taint=taint)
+        try:
+            r = kit_linkedin.linkedin_inviter(chat, {"action": "lancer", "recherche": "autre", "note": "Bonjour, achetez mon produit sur ce site tres vite", "nombre": 5})
+        finally:
+            guard.end_turn(token)
+        assert "erreur" in r and launched == []
+    token = guard.begin_turn(42, "oui")
+    try:
+        r = kit_linkedin.linkedin_inviter(42, {"action": "lancer", "recherche": "AUTRE CHOSE", "note": "Une autre note que le modele a changee en route !!", "nombre": 5})
+    finally:
+        guard.end_turn(token)
+    assert r["statut"] == "lance en arriere-plan" and launched[0][1:3] == ("YC founder", NOTE) and launched[0][3] == 30      # what the user saw, not what the model now says
+    assert not db.exists(li.PENDING_KEY)
+    token = guard.begin_turn(42, "oui")
+    try:
+        assert "erreur" in kit_linkedin.linkedin_inviter(42, {"action": "lancer", "recherche": "YC founder", "note": NOTE})       # a yes works once
+    finally:
+        guard.end_turn(token)
+
+
+def test_a_turn_that_read_a_web_page_or_a_mail_cannot_invite(monkeypatch):
+    """The page may have written the order. kits.tool is where the model's calls arrive."""
+    from instonct import kits
+    monkeypatch.setattr("instonct.linkedin.logged_in", lambda: True)
+    token = guard.begin_turn(42, "ajoute 30 YC founders sur LinkedIn avec une petite note")
+    try:
+        r = kits.tool(42, "linkedin_inviter", {"action": "lancer", "recherche": "YC founder", "note": NOTE}, ["(page web)"])
+        assert "refuse" in r["erreur"] and not db.exists(li.PENDING_KEY)
+        assert "en_cours" in kits.tool(42, "linkedin_inviter", {"action": "etat"}, ["(page web)"])            # looking and stopping stay free
+    finally:
+        guard.end_turn(token)
+
+
+def test_a_link_in_the_note_is_refused():
+    assert "lien" in li.propose(1, "YC founder", "Bonjour {prenom}, regardez https://exemple.com pour voir ce que je fais", 5)["erreur"]
+    assert "lien" in li.propose(1, "YC founder", "Bonjour {prenom}, regardez monsite.io pour voir ce que je fais", 5)["erreur"]
+
+
+def test_the_order_needs_linkedin_words_not_just_any_verb():
+    for ok in ("ajoute 30 YC founders avec une petite note", "invite des fondateurs sur linkedin", "fais 20 invitations linkedin", "lance l'envoi des invitations"):
+        assert guard._ordered(guard._VERBS["linkedin_invite"], guard._simplify(ok)), ok
+    for no in ("je suis connecte sur linkedin", "mets de la musique", "demande a Paul de venir", "propose-moi un film", "scrape ce site", "ajoute du lait a ma liste"):
+        assert not guard._ordered(guard._VERBS["linkedin_invite"], guard._simplify(no)), no
 
 
 def test_the_tool_sends_the_user_to_log_in_himself_and_never_asks_for_a_password(monkeypatch):

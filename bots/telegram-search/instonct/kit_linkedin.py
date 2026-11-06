@@ -14,9 +14,13 @@ GROUPS = [
 ]
 SPECS = [
     spec("linkedin_inviter",
-         "Envoie des invitations LinkedIn AVEC note, en vrai Chromium deja connecte. action : lancer, etat, stop. {prenom} dans la note = son prenom.",
+         "Invitations LinkedIn AVEC note, en vrai Chromium connecte. action : lancer (montre la note, attend le OUI), etat, stop. {prenom} = son prenom.",
          action="string!", recherche="string", note="string", nombre="integer"),
 ]
+
+
+FREE_ACTIONS = ("etat", "voir", "statut", "stop", "arreter", "arrete")
+LOCKED = {"linkedin_inviter"}          # kits.tool refuses these (except FREE_ACTIONS) once the turn has read a web page, a mail or a file
 
 
 def linkedin_inviter(chat_id, a):
@@ -28,6 +32,10 @@ def linkedin_inviter(chat_id, a):
         return linkedin_invite.stop()
     if action not in ("lancer", "lance", "start", "envoyer"):
         return {"erreur": "action inconnue : lancer, etat ou stop."}
+    if guard.plain_yes():                                         # the user said yes to the note and the audience we showed him: start exactly that
+        started = linkedin_invite.confirm(chat_id)
+        if started:
+            return started
     denied = guard.refusal("linkedin_invite")
     if denied:
         return denied
@@ -38,7 +46,7 @@ def linkedin_inviter(chat_id, a):
         known = screen.active()
     if not known:
         return {"erreur": "LinkedIn n'est pas connecte dans mon navigateur. Dis a l'utilisateur de faire /connexion linkedin et de se connecter LUI-MEME (jamais de mot de passe dans le chat), puis de te redemander."}
-    return linkedin_invite.start(chat_id, text(a, "recherche", "", 80), text(a, "note", "", 400), whole(a, "nombre", 30, 1, 100))
+    return linkedin_invite.propose(chat_id, text(a, "recherche", "", 80), text(a, "note", "", 400), whole(a, "nombre", 30, 1, 100))
 
 
 FUNCS = {"linkedin_inviter": linkedin_inviter}

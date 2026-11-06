@@ -37,7 +37,8 @@ _VERBS = {
     "auto_change": r"\bpause|\bsuspend|\bdesactive|\breprend|\breprise|\breactive|\bactive|\barrete|\bstop|\bcoupe|\brelance",
     "auto_run": r"\blance|\bexecute|\bdeclenche|\bteste|\bessaie|\bfais|\bmets?\b|\bdemarre",
     "scene_run": r"\blance|\bmets?\b|\bmettre|\bactive|\bdemarre|\bfais|\bmode\b|\bscene|\bambiance|\bexecute|\bpasse",
-    "linkedin_invite": r"\bajoute|\binvit|\bcontacte|\benvoie|\bdemande|\bfais|\blance|\brelation|\breseau|\bautomat|\bmets?\b|\bscrape|\bpropose",
+    "linkedin_invite": r"(?:\bajoute|\binvit|\bcontacte|\benvoie|\bfais|\blance|\brelance).{0,70}(?:linkedin|linked in|founder|fondateur|invitations?|\brelations?\b|\bcontacts?\b)"
+                       r"|(?:linkedin|linked in|founders?|fondateurs?|invitations?).{0,70}(?:\bajoute|\binvit|\bcontacte|\benvoie|\bfais|\blance)",
     "silence": r"\bsilence|\bsilencieux|\bmuet|\bchut\b|\bne parle|\bcalme|\bdiscret|\bnuit|\bbruit|\bactive|\bdesactive|\bcoupe|\bmets?\b|\bremets?\b|\breparle|\brevoix",
 }
 MAIL_ACTIONS = ("delete", "spam", "archive", "read", "unread", "star", "unstar")
@@ -94,6 +95,12 @@ def confirmed(action):
         return False
     text = _last_proposal(t["chat"])
     return bool(text) and _ASKS.search(text) is not None and re.search(_VERBS[action], text) is not None
+
+
+def plain_yes():
+    """True when this turn is the user's own plain yes (never a file, an automatism or a turn that read the web)."""
+    t = _turn.get()
+    return bool(t) and not t["denied"] and bool(_YES.match(t["q"]))
 
 
 def refusal(action, extra_word=None):

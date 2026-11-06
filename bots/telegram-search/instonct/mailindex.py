@@ -65,9 +65,9 @@ def _parse(raw):
     return out
 
 
-def _fetch(c, uids):
+def _fetch(c, uids, limit=FETCH_BYTES):
     """{uid: raw bytes}. The server may put the UID before or after the message body."""
-    typ, data = c.uid("fetch", ",".join(str(u) for u in uids), f"(BODY.PEEK[]<0.{FETCH_BYTES}>)")
+    typ, data = c.uid("fetch", ",".join(str(u) for u in uids), f"(BODY.PEEK[]<0.{limit}>)")
     if typ != "OK":
         raise RuntimeError(f"fetch refuse : {typ}")
     found, items = {}, list(data or [])
@@ -79,6 +79,17 @@ def _fetch(c, uids):
             if m:
                 found[int(m.group(1))] = item[1] or b""
     return found
+
+
+def _whole_invites(c, raws):
+    """A mail with a calendar invitation that was cut at FETCH_BYTES is fetched again in full: the real hour is often only in that file."""
+    again = [u for u, raw in raws.items() if len(raw) >= FETCH_BYTES and (b"text/calendar" in raw or b".ics" in raw.lower())]
+    if not again:
+        return {}
+    try:
+        return _fetch(c, again[:10], 400000)
+    except RuntimeError:
+        return {}
 
 
 def _status_of(c, folder):
@@ -109,6 +120,7 @@ def _sync_folder(c, n, folder, budget):
     batch = missing[:budget]                    # a UID the server does not return stays "missing" and is simply tried again next pass
     if batch:
         raws = _fetch(c, batch)
+        raws.update(_whole_invites(c, raws))
         if not raws:
             raise RuntimeError(f"le serveur n'a renvoye aucun mail : {folder}")          # otherwise this would silently spin forever
         rows = [{"acc": n, "folder": folder, "uid": u, "uidvalidity": validity, **_parse(raw)} for u, raw in raws.items()]
