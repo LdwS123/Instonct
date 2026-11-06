@@ -168,6 +168,12 @@ def text(txt):
     _do(lambda r: r.send_text(txt))
 
 
+def is_on():
+    """What the TV says about itself over the remote connection: True, False, or None when we are not connected."""
+    r = _conn["r"]
+    return getattr(r, "is_on", None) if r is not None else None
+
+
 def warm():
     """Ouvre la connexion a l'avance pour que la premiere touche parte tout de suite."""
     _do(lambda r: None)

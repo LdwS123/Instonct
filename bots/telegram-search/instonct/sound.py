@@ -159,9 +159,15 @@ def edge_wav(text, path):
     """Voix neuronale francaise (Edge TTS, gratuite, bien plus naturelle qu'espeak). Leve une erreur si injoignable."""
     import asyncio
     import edge_tts
+    if db.get("edge:down"):                      # it just failed: do not make every answer wait for it again
+        raise RuntimeError("Edge TTS en pause")
     mp3 = path + ".mp3"
     try:
-        asyncio.run(asyncio.wait_for(edge_tts.Communicate(text, EDGE_VOICE, rate="+8%").save(mp3), timeout=15))
+        try:
+            asyncio.run(asyncio.wait_for(edge_tts.Communicate(text, EDGE_VOICE, rate="+8%").save(mp3), timeout=8))
+        except Exception:
+            db.set("edge:down", 1, ex=300)       # 5 minutes with the local voice, then we try Edge again
+            raise
         subprocess.run(["sox", mp3, "-r", "48000", "-c", "1", path], check=True, timeout=30, stderr=subprocess.DEVNULL)
     finally:
         if os.path.exists(mp3):
@@ -177,7 +183,7 @@ def voice_note(text):
             edge_wav(text, wav)
         except Exception as e:                        # pas d'internet / service coupe : on retombe sur la voix locale
             log.warning("voix Edge indisponible (%s), voix locale", scrub(e))
-            tts_wav(text, VOICE_FR, 150, wav)
+            tts_wav(first_sentences(text, 280), VOICE_FR, 150, wav, rate=24000)       # the local voice is slow on this CPU: short, and no need for 48 kHz in a voice note
         subprocess.run(["opusenc", "--quiet", wav, ogg], check=True, timeout=60)
         with open(ogg, "rb") as f:
             return f.read()
@@ -202,6 +208,13 @@ def send_voice(chat_id, text):
     except Exception as e:
         log.warning("note vocale impossible : %s", scrub(e))
         return False
+
+
+def first_sentences(text, limit):
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    return cut[:cut.rfind(". ") + 1] if ". " in cut else cut
 
 
 def clean_for_speech(text, limit=400):

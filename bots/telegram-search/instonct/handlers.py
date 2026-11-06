@@ -6,6 +6,7 @@ import os
 import random
 import re
 import subprocess
+import threading
 import time
 from datetime import datetime
 
@@ -288,9 +289,10 @@ def handle_voice(chat_id, voice):
     heard = None
     if STT_API_KEY:
         with perf.timed("ecoute"):
-            heard = sound.transcribe(audio)
+            heard = sound.transcribe(audio) or sound.transcribe(audio)      # one more try: without words there is no direct order
     if heard and instant_order(chat_id, heard):
         return
+    journal.heard(heard)
     routine = life.match_routine(heard) if heard else None
     if routine:
         life.note("routine", routine[0])
@@ -300,9 +302,14 @@ def handle_voice(chat_id, voice):
     # Regle simple : tu parles -> je reponds en vocal, rien d'autre. Si le vocal echoue, je reponds en texte.
     if answer == SILENT:
         return
+    box = {}
+    maker = threading.Thread(target=lambda: box.update(ok=heard is not None and sound.send_voice(chat_id, answer)), daemon=True)
     with perf.timed("voix"):
-        spoken = heard is not None and sound.send_voice(chat_id, answer)
-    if not spoken:
+        maker.start()
+        maker.join(7)                                # a slow voice must not hold the answer back
+    if maker.is_alive():
+        send(chat_id, answer)                        # the text goes now, the voice note follows when it is ready
+    elif not box.get("ok"):
         send(chat_id, answer)
     elif needs_text(heard, answer):                  # un lien, une adresse, une liste... ca ne se dit pas a voix haute : on l'ecrit aussi
         send(chat_id, answer)

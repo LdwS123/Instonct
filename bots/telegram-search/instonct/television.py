@@ -9,14 +9,22 @@ from .core import is_wa, log, norm, scrub, send, tg
 from . import cast
 
 # telecommande : "allume la tele", "eteins la tele", "ouvre youtube sur la tele", "telecommande"...
-_THE_TV = r"(?: moi| nous)?(?: la| le| ma| notre)? ?(?:tele|television|tv|t v)"
-_ON_TV = r"(?:allume|allumer|rallume|rallumer|reveille|reveiller|demarre|demarrer|ouvre|ouvrir|mets|met|mettre)"
-_OFF_TV = r"(?:eteins|eteint|eteindre|etein|et teins|etends|coupe|couper|ferme|fermer|arrete|arreter)"
+_THE_TV = r"(?: moi| nous| m)?(?: la| le| ma| notre| l)? ?(?:tele|television|televiseur|tv|t v|poste)(?: du salon| de la maison)?"
+_ON_TV = r"(?:allume[sz]?|allumer|rallume[sz]?|rallumer|reveille[sz]?|reveiller|demarre[sz]?|demarrer|ouvre[sz]?|ouvrir|mets|met|mettre|mettez)"
+_OFF_TV = r"(?:etei?gn\w*|eteints?|eteins?|eteindre|etein|et teins|etends|coupe[sz]?|couper|ferme[sz]?|fermer|arrete[sz]?|arreter|stop|stoppe[sz]?|stopper)"
 _NUMBER = r"\d{1,3}|une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix"
 _NUMBERS = {w: i for i, w in enumerate("un deux trois quatre cinq six sept huit neuf dix".split(), 1)} | {"une": 1}
 _GO = r"(?:(?:mets|met|mes|mais|mettre|passe|passer|va|aller|bascule|change|zappe)(?: moi)?(?: sur| a| en| la)* ?)?"
-RE_TV_ON = re.compile(_ON_TV + _THE_TV)
-RE_TV_OFF = re.compile(_OFF_TV + _THE_TV)
+RE_TV_ON = re.compile(_ON_TV + r"(?: la| le| l)?" + _THE_TV + "|(?:la |le )?(?:tele|television|tv) on")
+RE_TV_OFF = re.compile(_OFF_TV + r"(?: la| le| l)?" + _THE_TV + r"|(?:mets|met|mettre|passe|passer)(?: moi)?(?: la| le| l)?" + _THE_TV + r" (?:en veille|off|a l arret)"
+                       r"|(?:mets|met|mettre|passe|passer)(?: moi)? en veille(?: la| le| l)?" + _THE_TV + r"|(?:la |le )?(?:tele|television|tv) (?:off|en veille)")
+# Quitter une appli de la tele : la touche Accueil la renvoie au menu (on ne voit pas l ecran, on le dit).
+RE_TV_QUIT = re.compile(r"(?:arrete[sz]?|ferme[sz]?|quitte[sz]?|coupe[sz]?|stoppe[sz]?|stop)(?: l| la| le)? ?(youtube|netflix|prime(?: video)?|disney(?: plus)?)"
+                        r"(?: (?:sur|dans|de)(?: la| le| l)? ?(?:tele|television|tv))?")
+# Les chaines que tout le monde connait (TNT) : la TNT garde les numeros 1 a 7.
+TNT = {"tf1": 1, "la une": 1, "une": 1, "france 2": 2, "france deux": 2, "france 3": 3, "france trois": 3, "canal": 4, "canal plus": 4, "france 5": 5, "france cinq": 5, "m6": 6, "arte": 7}
+RE_TV_NAMED = re.compile(r"(?:(?:mets|met|mettre|passe|passer|va|aller|bascule|zappe)(?: moi)?(?: sur| a| en)?(?: la| le)? ?)?(" + "|".join(sorted(TNT, key=len, reverse=True)) + ")(?: sur la tele)?")
+RE_TV_BARE_NUMBER = re.compile(r"(?:mets|met|mettre|passe|passer|va|aller|bascule|zappe)(?: moi)?(?: sur| a| en)?(?: la)? (" + _NUMBER + ")")
 RE_TV_APP = re.compile(r"(?:ouvre|ouvrir|lance|lancer|mets|met|mes|mais|mettre|va sur|aller sur|demarre|demarrer)(?: moi)?(?: l| la| le)? ?(?:amazon )?(youtube|netflix|prime(?: video)?|disney(?: plus)?)"
                        r"(?: (?:sur|dans|de)(?: la| le| l)? ?(?:tele|television|tv))?")
 RE_TV_CHANNEL = re.compile(_GO + rf"(?:chaine|tele|tv) (?:numero |n )?({_NUMBER})")
@@ -45,8 +53,16 @@ def tv_order(words):
         return lambda: tv_power("on")
     if RE_TV_OFF.fullmatch(words):
         return lambda: tv_power("off")
+    if m := RE_TV_QUIT.fullmatch(words):
+        name = m.group(1).split()[0]
+        return lambda: _done(tv_do("home"), f"J'ai envoye la touche Accueil : {APP_NAMES.get(name, name)} doit se fermer (je ne vois pas l'ecran, je ne peux pas le verifier).")
     if m := RE_TV_APP.fullmatch(words):
         return lambda: tv_do("app:" + m.group(1).split()[0])
+    if m := RE_TV_NAMED.fullmatch(words):
+        number = TNT[m.group(1)]
+        return lambda: tv_channel(number)
+    if m := RE_TV_BARE_NUMBER.fullmatch(words):
+        return lambda: tv_channel(_NUMBERS.get(m.group(1), m.group(1)))
     if m := RE_TV_CHANNEL.fullmatch(words):
         return lambda: tv_channel(_NUMBERS.get(m.group(1), m.group(1)))
     if m := RE_TV_HDMI.fullmatch(words):
@@ -146,22 +162,34 @@ def tv_channel(num):
     return f"Je mets la chaine {int(num)}."
 
 
+def _seen_on():
+    """True/False from the TV's two witnesses. When they disagree, "on" wins: saying "already off" about a TV that plays is the worse mistake."""
+    cast_on = bool(cast.tv_on())
+    own = tvremote.is_on() if tvremote is not None else None
+    return cast_on or own is True
+
+
 def tv_power(want):
     """Allume ('on') ou eteint ('off') la tele, en verifiant d'abord dans quel etat elle est."""
-    on = cast.tv_on()
+    if want == "off" and not cast.tv_on():
+        try:
+            tvremote.warm()                              # the Chromecast can wrongly say "standby": ask the TV itself before saying "already off"
+        except Exception as e:
+            log.info("tele : pas de connexion pour verifier (%s)", type(e).__name__)
+    on = _seen_on()
     log.info("tele : ordre %s, etat vu avant = %s", want, "allumee" if on else "eteinte ou en veille")
-    if want == "on" and on:
+    if want == "on" and on is True:
         return "La tele est deja allumee."
-    if want == "off" and not on:
-        return "La tele est deja eteinte."
+    if want == "off" and on is False:
+        return "La tele semble deja eteinte : je ne la vois pas allumee sur le reseau. Si elle joue encore, dis « telecommande » et appuie sur le bouton marche/arret."
     res = tv_do("power")
     if res != "OK":
         return res
     for _ in range(8):                                  # on verifie pour de vrai (jusqu'a ~12 s) au lieu de dire "fait" a l'aveugle
         time.sleep(1.5)
         cast._tv_cache["t"] = 0.0
-        now_on = cast.tv_on()
-        log.info("tele : etat vu apres l'ordre = %s", "allumee" if now_on else "eteinte ou en veille")
+        now_on = cast.tv_on()                           # after the key press only the Chromecast counts: the remote link may keep a stale "on"
+        log.info("tele : etat vu apres l'ordre = %s", now_on)
         if now_on == (want == "on"):
             return "La tele est allumee." if want == "on" else "La tele est eteinte."
     if want == "on":

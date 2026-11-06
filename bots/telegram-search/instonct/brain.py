@@ -6,7 +6,7 @@ import re
 
 from .config import ALL_MODELS, GEMINI_KEY, HISTORY_TTL, HISTORY_TURNS
 from .texts import SILENT
-from .core import db
+from .core import db, log
 from . import catalog, chatlog, dispatch, guard, llm, perf, recall, sound
 
 HISTORY_CHARS = 6000           # what is older is still found with chat_search
@@ -68,8 +68,12 @@ def agent_groq(chat_id, question, oral=False, taint=False):
                 messages[0]["content"] = catalog.build_system(oral) + said_before
                 messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": llm.NUDGE}]
                 continue
-            if not checked and llm.false_claim(answer, ran):
-                checked = True
+            if llm.false_claim(answer, ran):
+                if checked:
+                    log.warning("annonce sans action, deux fois de suite : %r", answer[:80])
+                    return llm.NOT_DONE, links           # never leave "c'est fait" standing when nothing ran
+                checked, toolset = True, catalog.GROQ_TOOLS     # and give it every tool, the right one may not have been offered
+                messages[0]["content"] = catalog.build_system(oral) + said_before
                 messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": llm.FALSE_CLAIM}]
                 continue
             unsure = llm.invented(answer, " ".join(known))
@@ -118,6 +122,7 @@ def agent(chat_id, user_parts, oral=False, taint=False):
     contents = history + [{"role": "user", "parts": user_parts}]
     links = ["(fichier recu)"] if taint else []
     system = catalog.build_system(oral)
+    ran, checked = set(), False
     for _ in range(llm.MAX_STEPS):
         resp = llm.call_gemini({"systemInstruction": {"parts": [{"text": system}]}, "contents": contents, "tools": catalog.TOOLS})
         if resp.status_code == 429:
@@ -128,9 +133,17 @@ def agent(chat_id, user_parts, oral=False, taint=False):
         parts = resp.json()["candidates"][0].get("content", {}).get("parts", [])
         calls = [p["functionCall"] for p in parts if "functionCall" in p]
         if not calls:
-            return llm.clean_answer("".join(p.get("text", "") for p in parts)), links
+            answer = llm.clean_answer("".join(p.get("text", "") for p in parts))
+            if llm.false_claim(answer, ran):
+                if checked:
+                    return llm.NOT_DONE, links
+                checked = True
+                contents += [{"role": "model", "parts": parts}, {"role": "user", "parts": [{"text": llm.FALSE_CLAIM}]}]
+                continue
+            return answer, links
         contents.append({"role": "model", "parts": parts})
         outs = [(c["name"], dispatch.run_tool(chat_id, c["name"], c.get("args", {}), links)) for c in calls]
+        ran |= {n for n, o in outs if "erreur" not in o}
         contents.append({"role": "user", "parts": [{"functionResponse": {"name": n, "response": o}} for n, o in outs]})
         if any(n == "mail_send" and "statut" in o for n, o in outs):
             return SILENT, links

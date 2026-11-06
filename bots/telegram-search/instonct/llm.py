@@ -1,6 +1,7 @@
 """Language models: web search, Gemini, the OpenAI-compatible providers (Groq, Cloudflare, Cerebras) and their fallback order."""
 
 import copy
+import json
 import os
 import re
 from urllib.parse import unquote, urlsplit
@@ -140,12 +141,39 @@ def invented(answer, known):
             [m.group(0).strip() for m in _PRICE.finditer(answer) if _number(m.group(1)) not in numbers])
 
 
+_JSON_STUB = re.compile(r'\{\s*"\w+"\s*:[^{}]*\}')
+_SENTENCE = re.compile(r'(?<=[.!?])\s*(?=[A-Z{"])')
+_EN_WORDS = frozenset("the user wants want to need needs what else anything you your we should let is are with and for this that please confirm confirmation ask which "
+                      "game games play delete memory answer respond reply i will can it of a an be do does not they them his her".split())
+_FR_WORDS = frozenset("le la les un une des je tu il elle est pas de du que qui ne ce et en dans pour mais avec sur vous nous ton ta tes mon ma mes quel quelle veux peux "
+                      "dis moi toi suis sont ai as a ete fait oui non voici voila donc ou ici deja bien tres plus moins".split())
+
+
+def _english(sentence):
+    words = re.findall(r"[a-z']+", sentence.lower())
+    fr = sum(w in _FR_WORDS for w in words if w not in ("a", "i", "do", "is"))
+    en = sum(w in _EN_WORDS for w in words)
+    return fr == 0 and (en >= 2 or (en >= 1 and len(words) <= 2 and bool(re.match(r"(?:need|user|ok|so)\b", sentence.strip().lower()))))
+
+
+def drop_english_notes(text):
+    """The model sometimes leaves its English thinking ("User wants to play video games.") between French sentences, and tool stubs like {"text":"tout"}. Only a mixed text is touched: a fully English answer stays."""
+    text = _JSON_STUB.sub("", text or "")
+    parts = [p for p in _SENTENCE.split(text) if p.strip()]
+    if len(parts) < 2:
+        return text.strip()
+    mine = [not _english(p) for p in parts]
+    if all(mine) or not any(re.search(r"[éèêàçùôî]|\b(?:je|tu|le|la|les|des|est|pas|que|vous|nous)\b", p.lower()) for p, keep in zip(parts, mine) if keep):
+        return text.strip()                          # nothing to remove, or no French around it: an English answer stays
+    return " ".join(p.strip() for p, keep in zip(parts, mine) if keep)
+
+
 def clean_answer(text):
     """Enleve les restes de reflexion du modele (<think>...</think>, ou texte avant un </think> orphelin)."""
     text = re.sub(r"<think>.*?</think>|【[^】]*】", "", text or "", flags=re.S)
     if "</think>" in text:
         text = text.rsplit("</think>", 1)[1]
-    text = text.replace("<think>", "").strip()
+    text = drop_english_notes(text.replace("<think>", "").strip())
     restart = text.find(text[:6], 6) if len(text) > 40 else -1      # some models write a draft, then start the same answer again right after its last full stop
     text = text[restart:] if restart > 0 and text[restart - 1] in ".!?" else text
     text = _FILLER.sub("", _GLUED_END.sub("", text)).rstrip()
@@ -195,10 +223,13 @@ def model_command(chat_id, arg):
         return f"OK, I will use {pick} first."
     cur = llm_models()[0]
     host = lambda m: MODEL_API[m][0].split("//")[-1].split("/")[0]
-    lines = [f"{i}. {m} ({host(m)}){'  <- in use' if m == cur else ''}" for i, m in enumerate(ALL_MODELS, 1)]
+    lines = []
+    for i, m in enumerate(ALL_MODELS, 1):
+        lines.append(f"{i}. {m} ({host(m)}){'  <- in use' if m == cur else ''}")
+        lines += usage_detail(m)
     today = usage_today()
     return ("Models I can use:\n" + "\n".join(lines)
-            + ("\n\nToday:\n" + "\n".join(today) if today else "")
+            + ("\n\nTotal today:\n" + "\n".join(today) if today else "")
             + "\n\n/model 2 : use number 2 first\n/model auto : default order. If one fails, I try the next automatically.")
 
 
@@ -215,9 +246,17 @@ CLAIMS = ((re.compile(r"rappel (est |a ete |bien )?(programm|prevu|cree|enregist
           (re.compile(r"j.ai (bien )?(appele|telephone)|je viens (d.appeler|de telephoner)", re.I), set()),                       # no phone line is plugged in: this is never true
           (re.compile(r"j.ai (bien )?(paye|achete|commande)|je viens (de payer|d.acheter|de commander)|commande (est |a ete )?passee|paiement (est |a ete )?effectue", re.I), set()),   # paying is always the user's hand
           (re.compile(r"(?:j.ai|je t.ai) (?:bien )?(?:ajoute|mis)\b.{0,80}\bpanier|(?:ajoute|mis) (?:a|dans) ton panier|(?:j.ai|je t.ai) (?:bien )?ouvert (?:la |le |une |un )?(?:page|site|lien)", re.I), {"browser"}),
+          (re.compile(r"(?:j.eteins|j.allume|j.arrete|je coupe|j.ai (?:bien )?(?:eteint|allume|coupe|arrete|mis))\b.{0,25}\b(?:tele|television|televiseur)\b"
+                      r"|\b(?:tele|television|televiseur)\b.{0,12}\b(?:est|s.est) (?:maintenant |bien |bien en train d.etre )?(?:eteinte|allumee|arretee|coupee)", re.I), {"tv_remote", "show_remote"}),
+          (re.compile(r"musique (?:est )?(?:bien )?(?:arretee|coupee|en pause|lancee|reprise|stoppee)|j.(?:arrete|ai (?:bien )?(?:arrete|coupe|lance|mis en pause))\b.{0,25}\b(?:musique|chanson|morceau|video|titre)", re.I),
+           {"play_music", "music_control", "tv_remote"}),
+          (re.compile(r"(?:volume|le son) (?:de la tele )?(?:est )?(?:bien )?(?:monte|baisse|regle|coupe|mis)\b|j.ai (?:bien )?(?:monte|baisse|coupe|regle)\b.{0,15}\b(?:son|volume)", re.I),
+           {"change_volume", "set_volume", "tv_remote"}),
           (re.compile(r"j.ai reserve|je viens de reserver|c.est (bien |tout )?reserve\b(?! aux?\b)|billet (est |a ete )?reserve|reservation (est |a ete )?confirmee", re.I), {"calendar_create"}))
 INVENTED = ("[Systeme] Ces liens ou prix de ta reponse ne viennent d'aucun resultat d'outil : %s. Tu les as probablement inventes. Va les chercher avec un outil, "
             "ou reecris ta reponse sans eux en disant ce que tu n'as pas pu verifier. Si tu as calcule un montant, dis-le.")
+NOT_DONE = ("Je n'ai pas reussi a le faire : l'action n'est pas partie, donc ne compte pas dessus. "
+            "Redis-le plus simplement (ex. « eteins la tele »), ou utilise la telecommande : dis « telecommande ».")
 UNVERIFIED = "\n\n(Attention : je n'ai pas pu verifier ces liens ou ces prix : %s.)"
 FALSE_CLAIM = ("[Systeme] Tu viens d'annoncer une action alors que l'outil n'a pas ete appele dans ce tour. Appelle l'outil maintenant, "
                "ou corrige ta reponse et dis franchement que ce n'est pas fait.")
@@ -245,8 +284,8 @@ def _usage_key(day=None):
     return f"usage:{day or datetime.now():%Y-%m-%d}"
 
 
-def _meter(model, r):
-    """Counts calls and tokens per model and per day: this is how we see if the good model really answers."""
+def _meter(model, r, seconds=0.0):
+    """Counts calls, tokens and time per model and per day: this is how we see if the good model really answers."""
     try:
         tokens = int((r.json().get("usage") or {}).get("total_tokens") or 0)
     except (ValueError, TypeError, AttributeError):
@@ -254,7 +293,60 @@ def _meter(model, r):
     key = _usage_key()
     db.hincrby(key, f"{model}|calls", 1)
     db.hincrby(key, f"{model}|tokens", tokens)
+    db.hincrby(key, f"{model}|ms", int(seconds * 1000))
     db.expire(key, 8 * 86400)
+
+
+def _seen(model, r):
+    """What the provider says about its own limits (x-ratelimit-* headers), and how often it said "too many requests"."""
+    try:
+        if r.status_code == 429:
+            db.hincrby(_usage_key(), f"{model}|limited", 1)
+        found = {k.lower(): str(v) for k, v in r.headers.items() if k.lower().startswith("x-ratelimit-") and ("remaining" in k.lower() or "limit" in k.lower())}
+        if found:
+            db.hset("limits", model, json.dumps(found))
+    except (AttributeError, TypeError, ValueError):
+        pass
+
+
+def _left(model):
+    """"requests 14,350/14,400 · tokens 7,900/8,000" from the last answer of this model, or ''."""
+    try:
+        h = json.loads(db.hget("limits", model) or "{}")
+    except ValueError:
+        return ""
+    out = []
+    for k, rem in sorted(h.items()):
+        if not k.startswith("x-ratelimit-remaining-"):
+            continue
+        name = k[len("x-ratelimit-remaining-"):]
+        lim = h.get("x-ratelimit-limit-" + name)
+        try:
+            out.append(f"{name.replace('-', ' ')} {int(float(rem)):,}" + (f"/{int(float(lim)):,}" if lim else ""))
+        except ValueError:
+            continue
+    return " · ".join(out)
+
+
+def usage_detail(model):
+    """Today's figures for one model: calls, tokens, average speed, refusals for 'too many requests', pause, and what is left."""
+    u = db.hgetall(_usage_key())
+    calls, tokens = int(u.get(f"{model}|calls", 0)), int(u.get(f"{model}|tokens", 0))
+    lines = []
+    if calls or u.get(f"{model}|limited"):
+        bits = [f"{calls} calls", f"{tokens:,} tokens"]
+        if calls and int(u.get(f"{model}|ms", 0)):
+            bits.append(f"{int(u.get(f'{model}|ms', 0)) / calls / 1000:.1f} s on average")
+        if int(u.get(f"{model}|limited", 0)):
+            bits.append(f"{u.get(f'{model}|limited')}x \"too many requests\"")
+        lines.append("   today: " + ", ".join(bits))
+    wait = db.ttl(f"cool:{model}")
+    if wait and wait > 0:
+        lines.append(f"   resting for {wait} s")
+    left = _left(model)
+    if left:
+        lines.append("   left: " + left)
+    return lines
 
 
 def usage_today():
@@ -284,6 +376,7 @@ def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _r
             continue
         log.info("llm %s : %.1f s (code %s)", model, time.time() - t0, r.status_code)
         perf.add("modele", time.time() - t0)
+        _seen(model, r)
         if r.status_code == 200:
             field = leaked_field(r)
             if field:                                  # le modele a recopie son brouillon interne (format gpt-oss brut) : on ne l'envoie JAMAIS a l'utilisateur
@@ -294,7 +387,7 @@ def llm_call(messages, question, oral, tools=True, toolset=None, plain=False, _r
                 m0 = r.json()["choices"][0]["message"]
             except (ValueError, KeyError, IndexError, TypeError):
                 m0 = None
-            _meter(model, r)
+            _meter(model, r, time.time() - t0)
             if m0 is not None and not m0.get("tool_calls") and not (m0.get("content") or "").strip():       # reponse vide (le modele a tout depense en reflexion) : on essaie le suivant
                 log.warning("llm %s : reponse vide, on passe au suivant", model)
                 db.set(f"cool:{model}", 1, ex=30)

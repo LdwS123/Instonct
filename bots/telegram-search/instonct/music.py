@@ -118,12 +118,20 @@ def set_output(mode):
 def music_find(query):
     """Cherche sur YouTube (sans rien telecharger). Renvoie (titre, duree, url audio directe) ou None."""
     target = query if query.startswith("http") else f"ytsearch1:{query}"
+    key = "ytfind:" + " ".join(norm(target).split())[:120]
+    try:
+        hit = json.loads(db.get(key) or "null")        # the same song again: no new search (the direct link lives a few hours)
+    except ValueError:
+        hit = None
+    if hit:
+        return hit
     out = subprocess.run([YTDLP, "--no-playlist", "--no-warnings", "-f", "bestaudio/best", "--print",
                           "%(title)s\t%(duration_string)s\t%(url)s", target],
                          capture_output=True, text=True, timeout=60).stdout.strip().splitlines()
     for line in reversed(out):
         parts = line.split("\t")
         if len(parts) == 3 and parts[2].startswith("http"):
+            db.set(key, json.dumps(parts), ex=3 * 3600)
             return parts
     return None
 
@@ -187,7 +195,7 @@ def music_control(action):
 
 
 RE_STOP = re.compile(r"(?:jessica )?(?:stop|stoppe|arrete|coupe|eteins|silence)(?: la| le| ca)?(?: musique| son| chanson| video)?(?: sur| de| dans| a)?(?: la| le| l)?(?: tele| television| tv)?")
-RE_PAUSE = re.compile(r"(?:jessica )?(?:pause|mets? (?:la )?(?:musique )?en pause)")
+RE_PAUSE = re.compile(r"(?:jessica )?(?:(?:mets? |met )?(?:la )?(?:musique )?(?:en )?pause)")
 RE_RESUME = re.compile(r"(?:jessica )?(?:reprends?|continue|play|relance)(?: la)?(?: musique)?")
 RE_PLAY = re.compile(r"(?:jessica )?(?:peux tu |tu peux )?(?:mets|met|joue|lance|passe)(?: moi)?(?: (?:une|un|la|le|du|de la|des)\b)?"
                      r"(?: (?:musique|morceau|chanson|titre|video)\b)?(?: (?:de|du|des|sur youtube)\b| d')? ?(.+)")
@@ -204,9 +212,13 @@ _FILLER = (r"(?:jessica|steve|voila|euh|heu|bah|ben|bon|alors|du coup|en fait|ok
 _FILLER_START = re.compile(rf"^{_FILLER}\b\s*")
 _FILLER_END = re.compile(rf"\s*\b(?:{_FILLER}|la)$")
 _ASKING = re.compile(r"^(?:est ce que )?(?:tu peux|tu pourrais|tu veux bien|peux tu|pourrais tu|veux tu|je veux que tu|je voudrais que tu|j aimerais que tu|"
-                     r"il faut que tu|il faudrait que tu|faudrait que tu|tu vas|il faut)\b(?: me)?\s*")
+                     r"il faut que tu|il faudrait que tu|faudrait que tu|tu vas|il faut)\b(?: me| m)?\s*")
 NOT_MUSIC = re.compile(r"\b(?:rappel|agenda|calendrier|mails?|emails?|messages?|taches?|todo|liste|recherche|notes?|alarme|reunion|rendez vous|rdv|fichier|lien|"
                        r"hdmi|photo|image|code|commande|script|ecran|serveur|question|reponse|document|numero|adresse)\b")
+
+
+# "mets la tele en veille", "mets le poste" : an order for the TV, never a song to look up
+RE_TV_OBJECT = re.compile(r"(?:(?:sur|en|a|la|le|l|moi) )*(?:tele|television|televiseur|tv|poste|veille|chaine|hdmi)\b")
 
 
 def order_words(text):
@@ -246,6 +258,8 @@ def quick_music(text):
         return music_control("resume")
     m = RE_PLAY.fullmatch(t) if not NOT_MUSIC.search(t) else None
     q = m.group(1).strip() if m else ""
+    if RE_TV_OBJECT.match(q):                            # "mets la tele en veille" is not a song called "tele en veille"
+        return None
     if len(q) >= 3 and q not in ("de", "pile ou face"):
         return music_play("hits musique populaire" if q in ("musique", "de la musique", "une musique") else q)
     return None

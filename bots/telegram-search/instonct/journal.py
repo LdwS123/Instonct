@@ -38,6 +38,12 @@ def order(said, done):
     _add({"t": int(time.time()), "what": "ordre : " + scrub(said)[:60], "ok": True, "detail": scrub(str(done))[:90]})
 
 
+def heard(said):
+    """A voice message that was not a direct order: what was understood, so a missed order can be explained afterwards."""
+    _add({"t": int(time.time()), "what": "entendu : " + (scrub(said)[:60] if said else "(rien compris)"), "ok": bool(said),
+          "detail": "pas un ordre direct, je passe par l'IA" if said else "la transcription a echoue"})
+
+
 def report(n=SHOWN):
     rows = [json.loads(x) for x in db.lrange(KEY, -n, -1)]
     if not rows:

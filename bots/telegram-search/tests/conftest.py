@@ -24,3 +24,49 @@ def clean_redis():
     db.flushdb()
     yield
     db.flushdb()
+
+
+_LOUD = {"aplay", "espeak-ng", "espeak", "paplay", "mpv", "play", "cvlc", "ffplay", "speaker-test", "pw-play"}
+
+
+def _is_loud(args):
+    argv = [str(a) for a in args] if isinstance(args, (list, tuple)) else str(args).split()
+    if not argv:
+        return False
+    name = os.path.basename(argv[0])
+    return name in _LOUD or (name in ("amixer", "pactl", "wpctl") and any(w in argv for w in ("sset", "set", "set-sink-volume", "set-volume", "set-sink-mute")))
+
+
+@pytest.fixture(autouse=True)
+def silence(monkeypatch):
+    """Nothing in the suite may ever make the machine speak, play, beep or change the volume (people sleep next to the Mac mini)."""
+    import subprocess
+    real_run, real_popen = subprocess.run, subprocess.Popen
+
+    class _Quiet:
+        returncode, stdout, stderr, pid = 0, "", "", 0
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def terminate(self):
+            pass
+
+        kill = terminate
+
+        def communicate(self, *a, **k):
+            return "", ""
+
+    def run(args, *a, **k):
+        if _is_loud(args):
+            return subprocess.CompletedProcess(args, 0, "", "")
+        return real_run(args, *a, **k)
+
+    def popen(args, *a, **k):
+        return _Quiet() if _is_loud(args) else real_popen(args, *a, **k)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(subprocess, "Popen", popen)
